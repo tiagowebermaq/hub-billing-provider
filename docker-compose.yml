@@ -1,0 +1,51 @@
+x-hub: &hub
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  image: hub-billing:dev
+  env_file: .env
+  environment:
+    HUB_RABBITMQ_URL: amqp://hub:hub@rabbitmq:5672/
+    HUB_REDIS_URL: redis://redis:6379/0
+    HUB_DATABASE_URL: postgresql+psycopg://hub:hub@postgres:5432/hub
+  depends_on:
+    rabbitmq: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    postgres: { condition: service_healthy }
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *hub
+    ports: ["8000:8000"]
+
+  worker-collector:  { <<: *hub, command: ["hub-worker", "collector"] }
+  worker-normalizer: { <<: *hub, command: ["hub-worker", "normalizer"] }
+  worker-grouper:    { <<: *hub, command: ["hub-worker", "grouper"] }
+  worker-dispatcher: { <<: *hub, command: ["hub-worker", "dispatcher"] }
+  worker-webhooks:   { <<: *hub, command: ["hub-worker", "webhooks"] }
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment: { RABBITMQ_DEFAULT_USER: hub, RABBITMQ_DEFAULT_PASS: hub }
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck: { test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"], interval: 10s, retries: 10 }
+    volumes: [rabbitmq:/var/lib/rabbitmq]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10 }
+    volumes: [redis:/data]
+
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: hub, POSTGRES_PASSWORD: hub, POSTGRES_DB: hub }
+    ports: ["5432:5432"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U hub"], interval: 5s, retries: 10 }
+    volumes: [postgres:/var/lib/postgresql/data]
+
+volumes:
+  rabbitmq:
+  redis:
+  postgres:

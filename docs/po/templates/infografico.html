@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Infográfico Hub Billing Provider v{{VERSION}}</title>
+<style>
+  @page { size: 420mm 297mm; margin: 0; }
+  :root { --ink:#16202c; --muted:#5b6675; --brand:#0f5c8c; --brand2:#1a8f6b; --amber:#c9781b;
+          --violet:#6b5ca5; --red:#b8433a; --bg:#f4f7fa; --card:#ffffff; --line:#d5dce4; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background: var(--bg); }
+  body { width: 1588px; height: 1123px; font-family: "DejaVu Sans","Segoe UI",Arial,sans-serif;
+         color: var(--ink); padding: 34px 40px; display:flex; flex-direction:column; gap:20px; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; }
+  header h1 { margin:0; font-size:40px; color:var(--brand); letter-spacing:-.5px; }
+  header p { margin:6px 0 0; font-size:17px; color:var(--muted); }
+  .ver { text-align:right; }
+  .ver b { display:inline-block; background:var(--brand); color:#fff; padding:8px 16px; border-radius:22px; font-size:20px; }
+  .ver div { font-size:13px; color:var(--muted); margin-top:6px; }
+
+  .flow { display:grid; grid-template-columns: 210px 34px 250px 34px 1fr 34px 250px; align-items:stretch; gap:0; height: 500px; }
+  .col { display:flex; flex-direction:column; gap:12px; }
+  .col h2 { font-size:14px; text-transform:uppercase; letter-spacing:1.2px; color:var(--muted); margin:0 0 2px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .card .t { font-weight:700; font-size:16px; }
+  .card .s { font-size:12.5px; color:var(--muted); margin-top:3px; line-height:1.35; }
+  .energy { border-left:6px solid var(--amber); }
+  .water { border-left:6px solid var(--brand); }
+  .adapter { border-left:6px solid var(--violet); }
+  .out { border-left:6px solid var(--brand2); }
+  .arrow { display:flex; align-items:center; justify-content:center; }
+  .arrow svg { width:34px; height:34px; }
+  .hub { background:#fff; border:2px solid var(--brand); border-radius:16px; padding:14px 16px; display:flex; flex-direction:column; gap:10px; }
+  .hub h2 { color:var(--brand); }
+  .pipe { display:flex; align-items:center; gap:6px; }
+  .step { flex:1; background:var(--bg); border-radius:10px; padding:10px 8px; text-align:center; border:1px solid var(--line); }
+  .step .n { width:24px; height:24px; border-radius:50%; background:var(--brand); color:#fff; font-size:13px; font-weight:700;
+             display:inline-flex; align-items:center; justify-content:center; }
+  .step .t { font-weight:700; font-size:14px; margin-top:4px; }
+  .step .s { font-size:11.5px; color:var(--muted); margin-top:2px; line-height:1.3; }
+  .pipe .chev { color:var(--brand); font-size:20px; font-weight:700; }
+  .bus { background:#fff4e6; border:1px dashed var(--amber); border-radius:10px; padding:8px 12px; font-size:12.5px; }
+  .bus b { color:var(--amber); }
+  .infra { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
+  .infra .card { padding:9px 11px; }
+  .infra .t { font-size:14px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { background:var(--brand); color:#fff; font-size:12px; padding:4px 10px; border-radius:14px; }
+  .chip.g { background:var(--brand2); } .chip.v { background:var(--violet); } .chip.a { background:var(--amber); }
+
+  .bottom { display:grid; grid-template-columns: 1.15fr 1fr 1fr 1.05fr; gap:16px; flex:1; }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .panel h3 { margin:0 0 12px; font-size:19px; color:var(--brand); }
+  .panel ul { margin:0; padding-left:20px; font-size:15.5px; line-height:1.75; }
+  .panel code { white-space:nowrap; font-family:"DejaVu Sans Mono",Consolas,monospace; font-size:11.5px; background:var(--bg); padding:1px 4px; border-radius:4px; }
+  .cid { display:flex; flex-direction:column; gap:12px; font-size:15px; line-height:1.4; }
+  .cid .row { display:flex; align-items:center; gap:8px; }
+  .cid .dot { width:10px; height:10px; border-radius:50%; background:var(--brand2); flex:none; }
+  .rbac { width:100%; border-collapse:collapse; font-size:15px; }
+  .rbac th, .rbac td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:left; }
+  .rbac th { color:var(--muted); font-weight:600; }
+  .status { display:flex; flex-wrap:wrap; align-items:center; gap:6px; background:var(--bg); border-radius:10px; padding:10px 12px; font-size:12.5px; }
+  .status .lbl { font-weight:700; color:var(--brand); margin-right:4px; }
+  .status .st { background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 8px; font-family:"DejaVu Sans Mono",Consolas,monospace; font-size:11.5px; }
+  .status .st.ok { border-color:var(--brand2); color:var(--brand2); font-weight:700; }
+  .status .ar { color:var(--muted); }
+  .status .alt { flex-basis:100%; color:var(--muted); font-size:12px; }
+  footer { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Hub Billing Provider</h1>
+    <p>Coleta, agrupa e entrega contas de energia (CPFL / RGE) e água (Aegea / Corsan) ao sistema de aluguéis</p>
+  </div>
+  <div class="ver"><b>PO v{{VERSION}}</b><div>{{DATE}}</div></div>
+</header>
+
+<section class="flow">
+  <div class="col">
+    <h2>Concessionárias</h2>
+    <div class="card energy"><div class="t">CPFL</div><div class="s">Energia · Unidade Consumidora</div></div>
+    <div class="card energy"><div class="t">RGE</div><div class="s">Energia · grupo CPFL</div></div>
+    <div class="card water"><div class="t">Corsan</div><div class="s">Água · grupo Aegea · Matrícula</div></div>
+    <div class="card water"><div class="t">Aegea</div><div class="s">Água · demais unidades</div></div>
+  </div>
+  <div class="arrow"><svg viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6" stroke="#0f5c8c" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  <div class="col">
+    <h2>Adapters</h2>
+    <div class="card adapter"><div class="t">adapter cpfl</div><div class="s">CPFL + RGE · autentica, lista UCs, baixa faturas</div></div>
+    <div class="card adapter"><div class="t">adapter aegea</div><div class="s">Aegea + Corsan · matrículas de água</div></div>
+    <div class="card adapter" style="border-style:dashed"><div class="t">+ novo provedor</div><div class="s">Implementa ProviderAdapter, sem mudar o núcleo</div></div>
+    <div class="card"><div class="s"><b>Resiliência:</b> timeout · retry com backoff · circuit breaker · rate limit no Redis</div></div>
+  </div>
+  <div class="arrow"><svg viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6" stroke="#0f5c8c" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  <div class="hub">
+    <h2 style="margin:0;font-size:14px;text-transform:uppercase;letter-spacing:1.2px">Núcleo do hub</h2>
+    <div class="pipe">
+      <div class="step"><span class="n">1</span><div class="t">Agendar</div><div class="s">Scheduler ou API dispara coleta</div></div><span class="chev">›</span>
+      <div class="step"><span class="n">2</span><div class="t">Coletar</div><div class="s">Workers chamam o adapter</div></div><span class="chev">›</span>
+      <div class="step"><span class="n">3</span><div class="t">Normalizar</div><div class="s">Modelo canônico + deduplicação</div></div><span class="chev">›</span>
+      <div class="step"><span class="n">4</span><div class="t">Agrupar</div><div class="s">Imóvel · contrato · competência</div></div><span class="chev">›</span>
+      <div class="step"><span class="n">5</span><div class="t">Entregar</div><div class="s">Lote com Idempotency-Key</div></div>
+    </div>
+    <div class="bus"><b>RabbitMQ</b> · <code>collect.request</code> → <code>collect.result</code> → <code>bill.normalized</code> → <code>batch.ready</code> → <code>events.webhook</code> · retry 30s/5m/1h · DLQ</div>
+    <div class="infra">
+      <div class="card"><div class="t">API REST · FastAPI</div><div class="s">JWT, RBAC, OpenAPI, /api/v1</div></div>
+      <div class="card"><div class="t">Redis</div><div class="s">Cache, idempotência, locks, rate limit</div></div>
+      <div class="card"><div class="t">PostgreSQL</div><div class="s">Usuários, imóveis, contas, lotes, auditoria</div></div>
+    </div>
+    <div class="status">
+      <span class="lbl">Status da conta</span>
+      <span class="st">COLLECTED</span><span class="ar">→</span><span class="st">NORMALIZED</span><span class="ar">→</span><span class="st">GROUPED</span><span class="ar">→</span><span class="st">SENT</span><span class="ar">→</span><span class="st ok">ACKNOWLEDGED</span>
+      <span class="alt">desvios: DUPLICATE · FAILED (retry → DLQ) · MANUAL_REVIEW</span>
+    </div>
+    <div class="chips" style="margin-top:auto">
+      <span class="chip">Python 3.12</span><span class="chip a">RabbitMQ</span><span class="chip">Redis</span>
+      <span class="chip g">Docker Compose</span><span class="chip g">Windows</span><span class="chip g">Ubuntu</span>
+      <span class="chip v">Adapter pattern</span><span class="chip v">Correlation ID</span><span class="chip">pytest ≥ 80%</span>
+    </div>
+  </div>
+  <div class="arrow"><svg viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6" stroke="#1a8f6b" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  <div class="col">
+    <h2>Consumidores</h2>
+    <div class="card out" style="border-width:2px 1px 1px 8px;border-color:var(--brand2)"><div class="t">Sistema de aluguéis</div><div class="s">Recebe o lote de contas por imóvel/contrato, uma única vez por competência</div></div>
+    <div class="card out"><div class="t">Webhooks</div><div class="s">bill.collected · bill.missing · batch.sent · batch.acknowledged · HMAC-SHA256</div></div>
+    <div class="card out"><div class="t">API de leitura</div><div class="s">Sistemas acoplados consultam contas, lotes e status</div></div>
+    <div class="card"><div class="t">Painel admin</div><div class="s">Filas, falhas, reprocessar, alertas</div></div>
+  </div>
+</section>
+
+<section class="bottom">
+  <div class="panel">
+    <h3>Correlation ID de ponta a ponta</h3>
+    <div class="cid">
+      <div class="row"><span class="dot"></span>Gerado na entrada (API, scheduler, upload) ou lido de <code>X-Correlation-ID</code></div>
+      <div class="row"><span class="dot"></span>Propagado na propriedade AMQP e no envelope de cada mensagem</div>
+      <div class="row"><span class="dot"></span>Presente em todos os logs JSON e na auditoria</div>
+      <div class="row"><span class="dot"></span>Enviado ao sistema de aluguéis e em cada webhook</div>
+      <div class="row"><span class="dot"></span>Idempotência: <code>provider + conta + competência</code></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h3>Usuários e permissões</h3>
+    <table class="rbac">
+      <tr><th>Perfil</th><th>Pode</th></tr>
+      <tr><td><b>Admin</b></td><td>Tudo; cria usuários e libera permissões</td></tr>
+      <tr><td><b>Operador</b></td><td>Cadastros, coletas, reenvios (conforme admin)</td></tr>
+      <tr><td><b>Consulta</b></td><td>Ler contas, lotes e status</td></tr>
+      <tr><td><b>Sistema</b></td><td>API key com escopos + webhooks</td></tr>
+    </table>
+  </div>
+  <div class="panel">
+    <h3>Roadmap (sprints)</h3>
+    <ul>
+      <li><b>1</b> Fundação · descoberta dos provedores</li>
+      <li><b>2</b> Usuários/RBAC · cadastros</li>
+      <li><b>3</b> Mensageria · adapter CPFL/RGE</li>
+      <li><b>4–5</b> Adapter Aegea/Corsan · agrupamento e envio</li>
+      <li><b>6</b> API pública e webhooks</li>
+      <li><b>7–8</b> Painel admin · go-live</li>
+    </ul>
+  </div>
+  <div class="panel">
+    <h3>Versionamento do PO</h3>
+    <ul>
+      <li>SemVer <b>MAJOR.MINOR.PATCH</b></li>
+      <li>Toda alteração gera <b>novo PDF + novo infográfico</b></li>
+      <li><code>docs/po/vX.Y.Z/</code> · nunca sobrescreve</li>
+      <li>Salvo no PC e no GitHub (tag <code>po-vX.Y.Z</code>)</li>
+      <li><code>python tools/build_po.py --bump minor</code></li>
+    </ul>
+  </div>
+</section>
+
+<footer><span>PO Hub Billing Provider · Product Owner: Weber</span><span>Infográfico v{{VERSION}} · gerado a partir de docs/po/templates</span></footer>
+</body>
+</html>

@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>PO Hub Billing Provider v{{VERSION}}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root {
+    --ink: #1b2430; --muted: #5b6675; --line: #d9dee5; --brand: #0f5c8c;
+    --brand-2: #1a8f6b; --soft: #eef4f9; --warn: #b5541c;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "DejaVu Sans", "Segoe UI", Arial, sans-serif; color: var(--ink);
+         font-size: 10pt; line-height: 1.45; margin: 0; background: #fff; }
+  h1 { font-size: 24pt; margin: 0 0 4mm; color: var(--brand); }
+  h2 { font-size: 14pt; color: var(--brand); border-bottom: 2px solid var(--brand);
+       padding-bottom: 1.5mm; margin: 9mm 0 3mm; page-break-after: avoid; }
+  h3 { font-size: 11pt; margin: 5mm 0 2mm; page-break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  ul { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1mm; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 9pt;
+          page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th { background: var(--brand); color: #fff; text-align: left; padding: 1.8mm 2mm; font-weight: 600; }
+  td { border-bottom: 1px solid var(--line); padding: 1.6mm 2mm; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7f9fb; }
+  code, .mono { font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 8.5pt; }
+  pre { font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 8pt; background: var(--soft);
+        border-left: 3px solid var(--brand); padding: 3mm; white-space: pre-wrap; page-break-inside: avoid; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: space-between;
+           page-break-after: always; }
+  .cover .band { background: var(--brand); color: #fff; padding: 14mm 12mm; border-radius: 3mm; }
+  .cover .band h1 { color: #fff; font-size: 30pt; margin-bottom: 2mm; }
+  .cover .band p { font-size: 12pt; opacity: .92; margin: 0; }
+  .meta td:first-child { width: 45mm; font-weight: 600; color: var(--muted); }
+  .badge { display: inline-block; padding: .6mm 2mm; border-radius: 2mm; font-size: 8pt; font-weight: 600; color: #fff; }
+  .must { background: var(--brand); } .should { background: var(--brand-2); } .could { background: #7a6a9b; }
+  .note { background: #fff6ec; border-left: 3px solid var(--warn); padding: 2.5mm 3mm; margin: 2mm 0 4mm; }
+  .toc li { margin-bottom: .6mm; }
+  .grid2, .box { page-break-inside: avoid; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .box { border: 1px solid var(--line); border-radius: 2mm; padding: 3mm; }
+  .box h3 { margin-top: 0; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="band">
+    <p>Product Owner Document</p>
+    <h1>PO Hub Billing Provider</h1>
+    <p>Hub de agrupamento de contas recorrentes de energia (CPFL / RGE) e água (Aegea / Corsan) com envio ao sistema de aluguéis</p>
+  </div>
+  <table class="meta">
+    <tr><td>Versão do documento</td><td><b>v{{VERSION}}</b></td></tr>
+    <tr><td>Data</td><td>{{DATE}}</td></tr>
+    <tr><td>Status</td><td>Rascunho para validação</td></tr>
+    <tr><td>Product Owner</td><td>Weber</td></tr>
+    <tr><td>Stack</td><td>Python, RabbitMQ, Redis, Docker, Webhooks, API REST, testes unitários</td></tr>
+    <tr><td>Plataformas</td><td>Windows e Ubuntu (nativo e Docker)</td></tr>
+    <tr><td>Artefatos desta versão</td><td>PO_Hub_Billing_Provider_v{{VERSION}}.pdf · Infografico_Hub_Billing_Provider_v{{VERSION}}.pdf / .png</td></tr>
+  </table>
+</section>
+
+<h2>Sumário</h2>
+<ol class="toc">
+  <li>Controle de versões</li>
+  <li>Visão do produto</li>
+  <li>Problema, objetivos e métricas de sucesso</li>
+  <li>Escopo</li>
+  <li>Atores e perfis de acesso</li>
+  <li>Provedores suportados</li>
+  <li>Requisitos funcionais</li>
+  <li>Requisitos não funcionais</li>
+  <li>Arquitetura</li>
+  <li>Filas, mensagens e Correlation ID</li>
+  <li>Padrão Adapter de provedores</li>
+  <li>Modelo de dados canônico</li>
+  <li>API REST e Webhooks</li>
+  <li>Segurança, usuários e permissões</li>
+  <li>Ambientes, Docker e execução em Windows/Ubuntu</li>
+  <li>Estratégia de testes</li>
+  <li>Política de versionamento do PO</li>
+  <li>Backlog e roadmap</li>
+  <li>Riscos, premissas e questões em aberto</li>
+  <li>Glossário</li>
+</ol>
+
+<h2>1. Controle de versões</h2>
+<table>
+  <tr><th style="width:18mm">Versão</th><th style="width:26mm">Data</th><th style="width:28mm">Autor</th><th>Alterações</th></tr>
+  {{CHANGELOG_ROWS}}
+</table>
+
+<h2>2. Visão do produto</h2>
+<p>O <b>Hub Billing Provider</b> é um serviço central que coleta, normaliza e agrupa as contas recorrentes de consumo
+(energia elétrica e água) dos imóveis administrados, vincula cada conta ao imóvel e ao contrato de locação correspondente
+e entrega essas contas, de forma confiável e rastreável, ao <b>sistema de aluguéis</b>.</p>
+<p>O hub também expõe uma <b>API REST</b> e emite <b>webhooks</b> para que outros sistemas, acoplados no futuro,
+consumam os mesmos dados sem integração direta com as concessionárias.</p>
+<div class="note"><b>Declaração de visão:</b> para administradores de imóveis que precisam repassar contas de consumo
+aos contratos de locação, o Hub Billing Provider é a fonte única e auditável de contas de energia e água,
+que elimina a coleta manual por concessionária e entrega as contas prontas para cobrança.</div>
+
+<h2>3. Problema, objetivos e métricas de sucesso</h2>
+<h3>3.1 Problema</h3>
+<ul>
+  <li>Cada concessionária (CPFL/RGE, Aegea/Corsan) tem portal, formato e calendário próprios.</li>
+  <li>A coleta manual é lenta, sujeita a erro e não deixa trilha de auditoria.</li>
+  <li>O sistema de aluguéis precisa receber as contas já vinculadas ao imóvel/contrato, sem duplicidade.</li>
+</ul>
+<h3>3.2 Objetivos</h3>
+<ul>
+  <li>Automatizar a coleta de 100% das contas dos imóveis cadastrados nos provedores suportados.</li>
+  <li>Agrupar as contas por imóvel, contrato e competência (mês de referência).</li>
+  <li>Entregar as contas ao sistema de aluguéis com garantia de entrega e idempotência.</li>
+  <li>Disponibilizar API e webhooks para novos sistemas consumidores.</li>
+  <li>Permitir adicionar uma nova concessionária criando apenas um novo adapter.</li>
+</ul>
+<h3>3.3 Métricas de sucesso (KPIs)</h3>
+<table>
+  <tr><th>Métrica</th><th>Meta inicial</th></tr>
+  <tr><td>Contas coletadas automaticamente / contas esperadas no ciclo</td><td>≥ 98%</td></tr>
+  <tr><td>Tempo entre disponibilidade da conta e entrega ao sistema de aluguéis</td><td>≤ 24 h</td></tr>
+  <tr><td>Contas duplicadas entregues</td><td>0</td></tr>
+  <tr><td>Webhooks entregues com sucesso (após retentativas)</td><td>≥ 99,5%</td></tr>
+  <tr><td>Cobertura de testes unitários</td><td>≥ 80%</td></tr>
+  <tr><td>Tempo para incluir uma nova concessionária</td><td>≤ 1 sprint</td></tr>
+</table>
+
+<h2>4. Escopo</h2>
+<div class="grid2">
+  <div class="box">
+    <h3>Dentro do escopo (v1)</h3>
+    <ul>
+      <li>Cadastro de imóveis, unidades consumidoras (energia) e matrículas (água).</li>
+      <li>Cadastro de credenciais de acesso por provedor, armazenadas cifradas.</li>
+      <li>Coleta agendada e sob demanda via adapters CPFL/RGE e Aegea/Corsan.</li>
+      <li>Normalização para o modelo canônico de conta.</li>
+      <li>Agrupamento por imóvel / contrato / competência.</li>
+      <li>Envio ao sistema de aluguéis.</li>
+      <li>API REST, webhooks assinados e painel de administração.</li>
+      <li>Conta admin e usuários com permissões concedidas pelo admin.</li>
+      <li>Logs estruturados com Correlation ID e auditoria.</li>
+      <li>Docker Compose; execução em Windows e Ubuntu.</li>
+    </ul>
+  </div>
+  <div class="box">
+    <h3>Fora do escopo (v1)</h3>
+    <ul>
+      <li>Pagamento das contas pelo hub.</li>
+      <li>Cobrança ao inquilino (responsabilidade do sistema de aluguéis).</li>
+      <li>Outras utilidades (gás, internet, condomínio), previstas para versões futuras.</li>
+      <li>Aplicativo mobile.</li>
+      <li>OCR avançado de contas digitalizadas em papel.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>5. Atores e perfis de acesso</h2>
+<table>
+  <tr><th style="width:42mm">Ator</th><th>Descrição</th></tr>
+  <tr><td>Administrador (Admin)</td><td>Conta raiz. Cria usuários, define perfis e permissões, gerencia provedores, credenciais, webhooks e chaves de API.</td></tr>
+  <tr><td>Usuário operador</td><td>Opera o dia a dia conforme permissões liberadas pelo admin: cadastra imóveis, acompanha coletas, reprocessa falhas.</td></tr>
+  <tr><td>Usuário consulta</td><td>Apenas visualiza contas, status e relatórios.</td></tr>
+  <tr><td>Sistema de aluguéis</td><td>Consumidor principal; recebe as contas agrupadas.</td></tr>
+  <tr><td>Sistemas acoplados</td><td>Consomem a API e/ou assinam webhooks com uma chave de API (client credentials).</td></tr>
+  <tr><td>Concessionárias</td><td>CPFL/RGE e Aegea/Corsan: fontes das contas.</td></tr>
+</table>
+
+<h2>6. Provedores suportados</h2>
+<table>
+  <tr><th>Provedor</th><th>Tipo</th><th>Identificador da conta</th><th>Observação</th></tr>
+  <tr><td>CPFL Paulista / Piratininga / Santa Cruz</td><td>Energia</td><td>Unidade Consumidora (UC) / Nº instalação</td><td>Adapter <code>cpfl</code></td></tr>
+  <tr><td>RGE (grupo CPFL)</td><td>Energia</td><td>Unidade Consumidora (UC)</td><td>Adapter <code>cpfl</code> com distribuidora <code>rge</code></td></tr>
+  <tr><td>Corsan (grupo Aegea)</td><td>Água / esgoto</td><td>Matrícula / Código do imóvel</td><td>Adapter <code>aegea</code> com unidade <code>corsan</code></td></tr>
+  <tr><td>Demais unidades Aegea</td><td>Água / esgoto</td><td>Matrícula</td><td>Mesmo adapter, configurável por unidade</td></tr>
+</table>
+<div class="note">O meio de coleta de cada provedor (API oficial, portal do cliente, e-mail com fatura, arquivo EDI/CNAB ou
+upload manual) será confirmado na fase de descoberta (épico E1). O padrão adapter isola essa decisão do restante do hub.</div>
+
+<h2>7. Requisitos funcionais</h2>
+<table>
+  <tr><th style="width:15mm">ID</th><th>Requisito</th><th style="width:18mm">Prioridade</th></tr>
+  <tr><td>RF-01</td><td>Autenticar usuários com login e senha; emitir token JWT com expiração e refresh.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-02</td><td>Existir uma conta admin inicial criada no primeiro boot (senha obrigatoriamente trocada no primeiro acesso).</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-03</td><td>Admin cria, edita, bloqueia usuários e concede/revoga permissões (RBAC por perfil + permissões avulsas).</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-04</td><td>CRUD de imóveis, com vínculo a contrato de locação (ID externo do sistema de aluguéis).</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-05</td><td>CRUD de unidades consumidoras/matrículas por imóvel e por provedor.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-06</td><td>Cadastro de credenciais por provedor, armazenadas cifradas e nunca exibidas após salvas.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-07</td><td>Agendar coletas por provedor (cron configurável) e disparar coleta sob demanda via API/painel.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-08</td><td>Coletar as contas através de adapters por provedor, publicando cada resultado em fila.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-09</td><td>Normalizar cada conta para o modelo canônico (valor, vencimento, competência, código de barras, linha digitável, PIX, PDF).</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-10</td><td>Detectar duplicidade (mesmo provedor + identificador + competência) e não reprocessar.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-11</td><td>Agrupar as contas por imóvel / contrato / competência, gerando um "lote de cobrança".</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-12</td><td>Enviar o lote ao sistema de aluguéis, com confirmação (ack) e retentativas.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-13</td><td>Disponibilizar API REST de leitura de contas, lotes, imóveis e status de coleta.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-14</td><td>Permitir que sistemas externos registrem assinaturas de webhook por tipo de evento.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-15</td><td>Enviar webhooks assinados (HMAC-SHA256) com retentativa exponencial e DLQ.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-16</td><td>Propagar Correlation ID em toda requisição, mensagem, log e webhook.</td><td><span class="badge must">Must</span></td></tr>
+  <tr><td>RF-17</td><td>Painel admin: status das filas, coletas, falhas e botão de reprocessar.</td><td><span class="badge should">Should</span></td></tr>
+  <tr><td>RF-18</td><td>Registrar trilha de auditoria (quem, o quê, quando, Correlation ID).</td><td><span class="badge should">Should</span></td></tr>
+  <tr><td>RF-19</td><td>Alertar (e-mail/webhook) quando conta esperada não for encontrada até a data limite.</td><td><span class="badge should">Should</span></td></tr>
+  <tr><td>RF-20</td><td>Upload manual de fatura (PDF) quando a coleta automática não for possível.</td><td><span class="badge should">Should</span></td></tr>
+  <tr><td>RF-21</td><td>Relatórios de consumo histórico por imóvel (kWh, m³, valores).</td><td><span class="badge could">Could</span></td></tr>
+</table>
+
+<h2>8. Requisitos não funcionais</h2>
+<table>
+  <tr><th style="width:18mm">ID</th><th style="width:32mm">Categoria</th><th>Requisito</th></tr>
+  <tr><td>RNF-01</td><td>Linguagem</td><td>Python 3.12+, tipagem estática (mypy), lint com ruff.</td></tr>
+  <tr><td>RNF-02</td><td>Portabilidade</td><td>Executar em Windows 10/11 e Ubuntu 22.04/24.04, nativamente e via Docker.</td></tr>
+  <tr><td>RNF-03</td><td>Containers</td><td>Docker e Docker Compose para todos os serviços (api, workers, scheduler, rabbitmq, redis, postgres).</td></tr>
+  <tr><td>RNF-04</td><td>Mensageria</td><td>RabbitMQ com filas duráveis, mensagens persistentes, ack manual, DLQ e filas de retry com TTL.</td></tr>
+  <tr><td>RNF-05</td><td>Cache e controle</td><td>Redis para cache, chaves de idempotência, locks distribuídos e rate limit por provedor.</td></tr>
+  <tr><td>RNF-06</td><td>Rastreabilidade</td><td>Correlation ID (UUID v4) em logs JSON estruturados; cabeçalho <code>X-Correlation-ID</code>.</td></tr>
+  <tr><td>RNF-07</td><td>Confiabilidade</td><td>Entrega "at-least-once" com consumidores idempotentes; nenhuma conta perdida em caso de queda.</td></tr>
+  <tr><td>RNF-08</td><td>Segurança</td><td>Senhas com Argon2/bcrypt; credenciais de provedores cifradas (Fernet/AES-256); TLS em produção; segredos via variáveis de ambiente.</td></tr>
+  <tr><td>RNF-09</td><td>LGPD</td><td>Dados pessoais minimizados, mascarados em logs; política de retenção configurável.</td></tr>
+  <tr><td>RNF-10</td><td>Testes</td><td>pytest com cobertura ≥ 80%; adapters testados com respostas gravadas (fixtures).</td></tr>
+  <tr><td>RNF-11</td><td>Desempenho</td><td>API com p95 &lt; 300 ms em leituras; coleta paralela configurável por provedor.</td></tr>
+  <tr><td>RNF-12</td><td>Observabilidade</td><td>Health checks (<code>/health</code>, <code>/ready</code>), métricas Prometheus (opcional na v1).</td></tr>
+  <tr><td>RNF-13</td><td>Documentação</td><td>OpenAPI gerado automaticamente; PO versionado em PDF + infográfico a cada alteração.</td></tr>
+</table>
+
+<h2 class="pb">9. Arquitetura</h2>
+<h3>9.1 Visão de componentes</h3>
+<pre>
+ Concessionárias            Hub Billing Provider                                Consumidores
+ ┌─────────────┐   ┌──────────────────────────────────────────────────┐   ┌──────────────────┐
+ │ CPFL / RGE  │◄──┤ Adapter cpfl  ┐                                   │   │ Sistema de       │
+ │ Aegea/Corsan│◄──┤ Adapter aegea ┤─► [collect.result] ─► Normalizer   │   │ aluguéis         │
+ └─────────────┘   │      ▲        │                          │         │   └────────▲─────────┘
+                   │      │        │                          ▼         │            │
+                   │ [collect.req] │                [bill.normalized]   │            │
+                   │      ▲        │                          │         │            │
+                   │  Scheduler ───┘                          ▼         │            │
+                   │                                      Grouper ──────┼─► Rental   │
+                   │                                          │         │   Dispatcher
+                   │  API REST (FastAPI) ◄── Admin / Usuários  ▼         │            │
+                   │        │                       [events.*] ─► Webhook Dispatcher ─┼─► Sistemas
+                   │        ▼                                           │   acoplados
+                   │  PostgreSQL     Redis (cache, idempotência, locks) │
+                   └──────────────────────────────────────────────────┘
+</pre>
+<h3>9.2 Componentes</h3>
+<table>
+  <tr><th style="width:38mm">Componente</th><th>Responsabilidade</th><th style="width:36mm">Tecnologia proposta</th></tr>
+  <tr><td>API</td><td>Autenticação, RBAC, CRUDs, consulta de contas, gestão de webhooks, disparo de coleta.</td><td>FastAPI + Uvicorn</td></tr>
+  <tr><td>Scheduler</td><td>Publica pedidos de coleta conforme o calendário de cada provedor.</td><td>APScheduler</td></tr>
+  <tr><td>Collector workers</td><td>Consomem <code>collect.request</code>, chamam o adapter do provedor, publicam o resultado.</td><td>Python + aio-pika</td></tr>
+  <tr><td>Normalizer</td><td>Converte dados brutos em conta canônica; valida e deduplica.</td><td>Pydantic v2</td></tr>
+  <tr><td>Grouper</td><td>Agrupa contas por imóvel/contrato/competência e fecha lotes.</td><td>Python</td></tr>
+  <tr><td>Rental Dispatcher</td><td>Entrega lotes ao sistema de aluguéis e registra ack.</td><td>httpx</td></tr>
+  <tr><td>Webhook Dispatcher</td><td>Entrega eventos aos assinantes com HMAC, retry e DLQ.</td><td>httpx</td></tr>
+  <tr><td>Banco de dados</td><td>Persistência de usuários, imóveis, contas, lotes, auditoria.</td><td>PostgreSQL 16 + SQLAlchemy 2 + Alembic</td></tr>
+  <tr><td>Redis</td><td>Cache, idempotência, locks, rate limit, sessões de provedor.</td><td>Redis 7</td></tr>
+  <tr><td>RabbitMQ</td><td>Barramento de mensagens entre todos os componentes.</td><td>RabbitMQ 3.13 (management)</td></tr>
+</table>
+<div class="note">PostgreSQL é uma proposta deste PO (o pedido original não definiu banco). Pode ser trocado por outro banco relacional sem impacto na arquitetura.</div>
+
+<h3>9.3 Estrutura de pastas proposta</h3>
+<pre>
+hub-billing-provider/
+├─ src/hub_billing/
+│  ├─ api/            # rotas FastAPI, auth, RBAC
+│  ├─ core/           # config, logging, correlation id, segurança
+│  ├─ domain/         # modelos canônicos e regras de agrupamento
+│  ├─ adapters/
+│  │  ├─ base.py      # interface ProviderAdapter
+│  │  ├─ cpfl/        # CPFL + RGE
+│  │  └─ aegea/       # Aegea + Corsan
+│  ├─ messaging/      # publisher/consumer RabbitMQ, topologia
+│  ├─ workers/        # collector, normalizer, grouper, dispatchers
+│  ├─ webhooks/       # assinaturas, assinatura HMAC, entrega
+│  └─ infra/          # db, redis, repositórios
+├─ tests/unit/ · tests/integration/
+├─ docs/po/           # VERSION, CHANGELOG, templates, vX.Y.Z/ (PDF + infográfico)
+├─ tools/build_po.py  # gera o PDF e o infográfico versionados
+├─ docker/ · docker-compose.yml · Makefile · scripts/*.ps1
+└─ pyproject.toml
+</pre>
+
+<h2>10. Filas, mensagens e Correlation ID</h2>
+<h3>10.1 Topologia RabbitMQ</h3>
+<table>
+  <tr><th>Exchange (tipo)</th><th>Routing key / Fila</th><th>Produtor → Consumidor</th></tr>
+  <tr><td><code>hub.collect</code> (topic)</td><td><code>collect.request.&lt;provider&gt;</code></td><td>Scheduler/API → Collector</td></tr>
+  <tr><td><code>hub.collect</code> (topic)</td><td><code>collect.result.&lt;provider&gt;</code></td><td>Collector → Normalizer</td></tr>
+  <tr><td><code>hub.bills</code> (topic)</td><td><code>bill.normalized</code></td><td>Normalizer → Grouper</td></tr>
+  <tr><td><code>hub.bills</code> (topic)</td><td><code>batch.ready</code></td><td>Grouper → Rental Dispatcher</td></tr>
+  <tr><td><code>hub.events</code> (fanout)</td><td><code>events.webhook</code></td><td>Todos → Webhook Dispatcher</td></tr>
+  <tr><td><code>hub.retry</code> (direct)</td><td><code>*.retry.{30s,5m,1h}</code> (TTL + dead-letter de volta)</td><td>Retentativas com backoff</td></tr>
+  <tr><td><code>hub.dlx</code> (direct)</td><td><code>*.dlq</code></td><td>Falhas definitivas → painel admin</td></tr>
+</table>
+<h3>10.2 Envelope de mensagem</h3>
+<pre>{
+  "message_id": "7d1f...-uuid",          // único por mensagem (idempotência)
+  "correlation_id": "c0a8...-uuid",      // único por fluxo de negócio
+  "causation_id": "uuid-da-mensagem-que-originou",
+  "type": "bill.normalized",
+  "version": 1,
+  "occurred_at": "2026-10-25T03:00:00Z",
+  "producer": "normalizer",
+  "attempt": 1,
+  "payload": { ... }
+}</pre>
+<h3>10.3 Regras do Correlation ID</h3>
+<ul>
+  <li>Gerado na entrada do fluxo (API, scheduler ou upload) se não vier no cabeçalho <code>X-Correlation-ID</code>.</li>
+  <li>Copiado para a propriedade AMQP <code>correlation_id</code> e para o envelope de todas as mensagens derivadas.</li>
+  <li>Incluído em todos os logs (via <code>contextvars</code>), registros de auditoria, chamadas ao sistema de aluguéis e webhooks.</li>
+  <li>Retornado no cabeçalho de resposta da API, permitindo rastrear uma conta de ponta a ponta.</li>
+</ul>
+<h3>10.4 Idempotência</h3>
+<ul>
+  <li>Chave de negócio da conta: <code>provider + account_id + reference_month</code> (único no banco).</li>
+  <li>Chave de mensagem: <code>message_id</code> gravado no Redis com TTL; mensagens repetidas recebem ack sem reprocessar.</li>
+  <li>Envio ao sistema de aluguéis usa cabeçalho <code>Idempotency-Key</code> = ID do lote.</li>
+</ul>
+
+<h2>11. Padrão Adapter de provedores</h2>
+<p>Cada concessionária é implementada como um adapter que obedece a uma interface única. O restante do hub nunca conhece
+detalhes do provedor. Adapters são registrados por nome e habilitados por configuração.</p>
+<pre>class ProviderAdapter(Protocol):
+    code: str                       # "cpfl", "aegea"
+    utility_type: UtilityType       # ENERGY | WATER
+
+    async def authenticate(self, credentials: ProviderCredentials) -> Session: ...
+    async def list_accounts(self, session: Session) -> list[ProviderAccount]: ...
+    async def fetch_bills(self, session: Session, account: ProviderAccount,
+                          reference: YearMonth | None = None) -> list[RawBill]: ...
+    async def download_document(self, session: Session, bill: RawBill) -> bytes: ...
+    def to_canonical(self, raw: RawBill) -> Bill: ...</pre>
+<ul>
+  <li><b>Registro:</b> <code>AdapterRegistry.register("cpfl", CpflAdapter)</code>; novos provedores entram sem alterar o núcleo.</li>
+  <li><b>Variações:</b> distribuidoras/unidades (ex.: RGE, Corsan) são parâmetros do adapter, não novos adapters.</li>
+  <li><b>Resiliência:</b> timeout, retry com backoff, circuit breaker e rate limit (Redis) por provedor.</li>
+  <li><b>Testabilidade:</b> cada adapter possui um <code>FakeAdapter</code> e fixtures de respostas reais anonimizadas.</li>
+</ul>
+
+<h2>12. Modelo de dados canônico</h2>
+<table>
+  <tr><th>Entidade</th><th>Campos principais</th></tr>
+  <tr><td>User</td><td>id, nome, e-mail, hash_senha, ativo, is_admin, perfis[], permissões[], criado_em</td></tr>
+  <tr><td>Property (imóvel)</td><td>id, código, endereço, contrato_externo_id, ativo</td></tr>
+  <tr><td>UtilityAccount</td><td>id, property_id, provider, distribuidora/unidade, account_number (UC/matrícula), titular, ativo</td></tr>
+  <tr><td>ProviderCredential</td><td>id, provider, login, segredo_cifrado, escopo, último_sucesso</td></tr>
+  <tr><td>Bill (conta)</td><td>id, utility_account_id, provider, utility_type, reference_month, issue_date, due_date, amount, consumo (kWh/m³), barcode, digitable_line, pix_code, document_url, status, correlation_id</td></tr>
+  <tr><td>BillingBatch (lote)</td><td>id, property_id, contrato_externo_id, reference_month, bills[], total, status (OPEN, READY, SENT, ACKED, FAILED), sent_at</td></tr>
+  <tr><td>WebhookSubscription</td><td>id, client_id, url, eventos[], segredo, ativo</td></tr>
+  <tr><td>WebhookDelivery</td><td>id, subscription_id, event_id, tentativa, status_http, próxima_tentativa</td></tr>
+  <tr><td>AuditLog</td><td>id, actor, ação, recurso, antes/depois, correlation_id, timestamp</td></tr>
+</table>
+<p><b>Status da conta:</b> <code>COLLECTED → NORMALIZED → GROUPED → SENT → ACKNOWLEDGED</code>, com desvios
+<code>DUPLICATE</code>, <code>FAILED</code> e <code>MANUAL_REVIEW</code>.</p>
+
+<h2>13. API REST e Webhooks</h2>
+<h3>13.1 Endpoints principais (prefixo <code>/api/v1</code>)</h3>
+<table>
+  <tr><th style="width:18mm">Método</th><th style="width:62mm">Rota</th><th>Descrição</th></tr>
+  <tr><td>POST</td><td>/auth/login · /auth/refresh</td><td>Autenticação de usuário (JWT)</td></tr>
+  <tr><td>POST</td><td>/auth/token</td><td>Client credentials para sistemas acoplados</td></tr>
+  <tr><td>CRUD</td><td>/users · /roles · /permissions</td><td>Gestão de acesso (admin)</td></tr>
+  <tr><td>CRUD</td><td>/properties · /utility-accounts</td><td>Imóveis e UCs/matrículas</td></tr>
+  <tr><td>CRUD</td><td>/providers/{code}/credentials</td><td>Credenciais de provedores</td></tr>
+  <tr><td>POST</td><td>/collections</td><td>Dispara coleta sob demanda (retorna correlation_id)</td></tr>
+  <tr><td>GET</td><td>/collections/{id}</td><td>Status da coleta</td></tr>
+  <tr><td>GET</td><td>/bills · /bills/{id} · /bills/{id}/document</td><td>Consulta de contas e PDF</td></tr>
+  <tr><td>GET</td><td>/batches · /batches/{id}</td><td>Lotes enviados ao sistema de aluguéis</td></tr>
+  <tr><td>POST</td><td>/batches/{id}/resend</td><td>Reenvio manual</td></tr>
+  <tr><td>CRUD</td><td>/webhooks</td><td>Assinaturas de webhook</td></tr>
+  <tr><td>GET</td><td>/health · /ready</td><td>Saúde do serviço</td></tr>
+</table>
+<h3>13.2 Eventos de webhook</h3>
+<table>
+  <tr><th>Evento</th><th>Quando</th></tr>
+  <tr><td><code>bill.collected</code></td><td>Nova conta coletada e normalizada</td></tr>
+  <tr><td><code>bill.updated</code></td><td>Conta alterada (ex.: segunda via, novo valor)</td></tr>
+  <tr><td><code>bill.missing</code></td><td>Conta esperada não encontrada até a data limite</td></tr>
+  <tr><td><code>batch.sent</code> / <code>batch.acknowledged</code> / <code>batch.failed</code></td><td>Ciclo de vida do lote no sistema de aluguéis</td></tr>
+  <tr><td><code>collection.failed</code></td><td>Falha definitiva de coleta em um provedor</td></tr>
+</table>
+<h3>13.3 Contrato de entrega</h3>
+<ul>
+  <li>Cabeçalhos: <code>X-Hub-Event</code>, <code>X-Hub-Delivery</code>, <code>X-Correlation-ID</code>, <code>X-Hub-Timestamp</code>, <code>X-Hub-Signature-256</code> (HMAC-SHA256 de <code>timestamp.body</code>).</li>
+  <li>Sucesso = HTTP 2xx em até 10 s. Caso contrário, retentativas em 30 s, 5 min, 1 h, 6 h e 24 h; depois DLQ e alerta.</li>
+  <li>Consumidores devem ser idempotentes usando <code>X-Hub-Delivery</code>.</li>
+</ul>
+<h3>13.4 Integração com o sistema de aluguéis</h3>
+<p>Modo padrão: o hub faz <code>POST</code> do lote para a API do sistema de aluguéis com <code>Idempotency-Key</code>.
+Modo alternativo: o sistema de aluguéis assina o webhook <code>batch.ready</code> ou consulta <code>GET /batches</code>.
+O contrato exato será definido com o time do sistema de aluguéis (questão em aberto Q-01).</p>
+
+<h2>14. Segurança, usuários e permissões</h2>
+<p>Controle de acesso baseado em perfis (RBAC) com permissões granulares. A conta <b>admin</b> possui todas as permissões
+e é a única que pode conceder permissões a outros usuários.</p>
+<table>
+  <tr><th>Permissão</th><th>Admin</th><th>Operador</th><th>Consulta</th></tr>
+  <tr><td>users:manage, roles:manage</td><td>✔</td><td>–</td><td>–</td></tr>
+  <tr><td>providers:credentials:write</td><td>✔</td><td>conforme admin</td><td>–</td></tr>
+  <tr><td>properties:write, accounts:write</td><td>✔</td><td>✔</td><td>–</td></tr>
+  <tr><td>collections:run, batches:resend</td><td>✔</td><td>✔</td><td>–</td></tr>
+  <tr><td>bills:read, batches:read</td><td>✔</td><td>✔</td><td>✔</td></tr>
+  <tr><td>webhooks:manage, api-clients:manage</td><td>✔</td><td>conforme admin</td><td>–</td></tr>
+  <tr><td>audit:read</td><td>✔</td><td>conforme admin</td><td>–</td></tr>
+</table>
+<ul>
+  <li>Toda ação de escrita é registrada na auditoria com o Correlation ID.</li>
+  <li>Bloqueio após tentativas de login inválidas (rate limit no Redis).</li>
+  <li>Chaves de API de sistemas acoplados com escopos e expiração; rotação pelo admin.</li>
+</ul>
+
+<h2>15. Ambientes, Docker e execução em Windows/Ubuntu</h2>
+<table>
+  <tr><th>Serviço (docker-compose)</th><th>Imagem</th><th>Porta</th></tr>
+  <tr><td>api</td><td>hub-billing (python:3.12-slim)</td><td>8000</td></tr>
+  <tr><td>scheduler · worker-collector · worker-normalizer · worker-grouper · worker-dispatcher · worker-webhooks</td><td>hub-billing</td><td>–</td></tr>
+  <tr><td>rabbitmq</td><td>rabbitmq:3.13-management</td><td>5672 / 15672</td></tr>
+  <tr><td>redis</td><td>redis:7-alpine</td><td>6379</td></tr>
+  <tr><td>postgres</td><td>postgres:16-alpine</td><td>5432</td></tr>
+</table>
+<ul>
+  <li><b>Ubuntu:</b> <code>make up</code> / <code>make test</code>; execução nativa com <code>python -m venv</code>.</li>
+  <li><b>Windows:</b> Docker Desktop (WSL2) ou nativo com scripts PowerShell equivalentes (<code>scripts\up.ps1</code>, <code>scripts\test.ps1</code>).</li>
+  <li>Código sem dependência de SO: <code>pathlib</code>, sem chamadas de shell, encoding UTF-8 explícito; CI testa nas duas plataformas.</li>
+  <li>Configuração por variáveis de ambiente (<code>.env</code>), via pydantic-settings.</li>
+</ul>
+
+<h2>16. Estratégia de testes</h2>
+<table>
+  <tr><th>Nível</th><th>Escopo</th><th>Ferramentas</th></tr>
+  <tr><td>Unitário</td><td>Domínio, agrupamento, normalização, adapters (com fixtures), assinatura HMAC, RBAC</td><td>pytest, pytest-asyncio, respx, freezegun</td></tr>
+  <tr><td>Integração</td><td>RabbitMQ, Redis e Postgres reais</td><td>testcontainers / docker compose</td></tr>
+  <tr><td>Contrato</td><td>API OpenAPI e payloads de webhook/lote</td><td>schemathesis</td></tr>
+  <tr><td>CI</td><td>Lint, mypy, testes e cobertura em ubuntu-latest e windows-latest</td><td>GitHub Actions</td></tr>
+</table>
+<p>Critério de pronto (DoD): código revisado, testes unitários passando, cobertura ≥ 80% no módulo alterado,
+documentação atualizada e, quando houver mudança de escopo/requisito, nova versão do PO gerada.</p>
+
+<h2>17. Política de versionamento do PO</h2>
+<ul>
+  <li>Versionamento semântico do documento: <b>MAJOR.MINOR.PATCH</b>.
+    <ul>
+      <li><b>MAJOR</b>: mudança de visão, escopo ou arquitetura que quebra o acordado.</li>
+      <li><b>MINOR</b>: novo requisito, provedor, evento ou épico.</li>
+      <li><b>PATCH</b>: correções de texto, esclarecimentos, ajustes de prioridade.</li>
+    </ul>
+  </li>
+  <li>Toda alteração gera <b>novo PDF e novo infográfico</b>: <code>docs/po/vX.Y.Z/PO_Hub_Billing_Provider_vX.Y.Z.pdf</code> e
+      <code>Infografico_Hub_Billing_Provider_vX.Y.Z.(pdf|png)</code>. Versões anteriores nunca são sobrescritas.</li>
+  <li>O arquivo <code>docs/po/VERSION</code> guarda a versão atual e <code>docs/po/CHANGELOG.md</code> o histórico (também impresso na seção 1).</li>
+  <li>Geração: <code>python tools/build_po.py --bump minor -m "descrição"</code> (funciona em Windows e Ubuntu).</li>
+  <li>Os artefatos são salvos no PC (pasta local do projeto) e no GitHub (commit + tag <code>po-vX.Y.Z</code>).</li>
+</ul>
+
+<h2 class="pb">18. Backlog e roadmap</h2>
+<table>
+  <tr><th style="width:12mm">Épico</th><th style="width:44mm">Nome</th><th>Histórias principais</th><th style="width:16mm">Sprint</th></tr>
+  <tr><td>E0</td><td>Fundação</td><td>Repositório, pyproject, lint/mypy, Docker Compose, CI Windows+Ubuntu, logging JSON com Correlation ID, gerador do PO.</td><td>1</td></tr>
+  <tr><td>E1</td><td>Descoberta de provedores</td><td>Levantar meio de coleta CPFL/RGE e Aegea/Corsan (API, portal, e-mail, EDI); anonimizar amostras de faturas.</td><td>1</td></tr>
+  <tr><td>E2</td><td>Acesso e usuários</td><td>Conta admin inicial, login JWT, CRUD de usuários, perfis e permissões, auditoria.</td><td>2</td></tr>
+  <tr><td>E3</td><td>Cadastros</td><td>Imóveis, contratos, UCs/matrículas, credenciais cifradas.</td><td>2</td></tr>
+  <tr><td>E4</td><td>Mensageria</td><td>Topologia RabbitMQ, envelope, retry/DLQ, idempotência no Redis.</td><td>3</td></tr>
+  <tr><td>E5</td><td>Adapter CPFL/RGE</td><td>Autenticação, listagem de UCs, coleta, download do PDF, normalização, testes.</td><td>3–4</td></tr>
+  <tr><td>E6</td><td>Adapter Aegea/Corsan</td><td>Idem para matrículas de água.</td><td>4–5</td></tr>
+  <tr><td>E7</td><td>Agrupamento e envio</td><td>Grouper, lotes, Rental Dispatcher, ack e reenvio.</td><td>5</td></tr>
+  <tr><td>E8</td><td>API pública e webhooks</td><td>Endpoints de leitura, client credentials, assinaturas, HMAC, entregas, DLQ.</td><td>6</td></tr>
+  <tr><td>E9</td><td>Painel admin e operação</td><td>Dashboard de filas/coletas, reprocessamento, alertas de conta ausente, upload manual.</td><td>7</td></tr>
+  <tr><td>E10</td><td>Go-live</td><td>Hardening, LGPD, backup, documentação de implantação, piloto com imóveis reais.</td><td>8</td></tr>
+</table>
+<h3>Exemplos de histórias (formato de aceite)</h3>
+<table>
+  <tr><th style="width:15mm">ID</th><th>História</th><th>Critérios de aceite</th></tr>
+  <tr><td>US-01</td><td>Como admin, quero conceder permissões a um usuário para que ele opere apenas o necessário.</td><td>Permissão concedida reflete no próximo token; ação registrada na auditoria; usuário sem permissão recebe 403.</td></tr>
+  <tr><td>US-02</td><td>Como operador, quero disparar a coleta de um imóvel e acompanhar pelo Correlation ID.</td><td>POST /collections retorna 202 + correlation_id; GET mostra o status de cada etapa.</td></tr>
+  <tr><td>US-03</td><td>Como sistema de aluguéis, quero receber cada conta uma única vez por competência.</td><td>Reenvio da mesma conta não cria duplicidade; Idempotency-Key presente; ack registrado.</td></tr>
+  <tr><td>US-04</td><td>Como sistema acoplado, quero assinar <code>bill.collected</code> e validar a assinatura.</td><td>Webhook entregue com HMAC válido; falha gera retentativas; após esgotar vai para DLQ.</td></tr>
+  <tr><td>US-05</td><td>Como dev, quero adicionar um novo provedor implementando só um adapter.</td><td>Novo adapter registrado e coberto por testes, sem mudança fora de <code>adapters/</code>.</td></tr>
+</table>
+
+<h2>19. Riscos, premissas e questões em aberto</h2>
+<h3>19.1 Riscos</h3>
+<table>
+  <tr><th>Risco</th><th>Impacto</th><th>Mitigação</th></tr>
+  <tr><td>Concessionária sem API oficial; portal muda layout ou usa captcha</td><td>Alto</td><td>Adapter isolado, testes com fixtures, alerta de falha, upload manual como contingência, buscar convênio/EDI.</td></tr>
+  <tr><td>Termos de uso dos portais restringem automação</td><td>Alto</td><td>Validação jurídica na E1; priorizar canais oficiais (API, e-mail de fatura, EDI).</td></tr>
+  <tr><td>Credenciais de clientes vazadas</td><td>Alto</td><td>Cifragem, segredos fora do código, acesso restrito por permissão, auditoria.</td></tr>
+  <tr><td>Contrato da API do sistema de aluguéis indefinido</td><td>Médio</td><td>Dispatcher com adapter próprio; modo webhook/pull como alternativa.</td></tr>
+  <tr><td>Diferenças Windows × Ubuntu</td><td>Baixo</td><td>Docker como padrão, CI nas duas plataformas.</td></tr>
+</table>
+<h3>19.2 Premissas</h3>
+<ul>
+  <li>Os imóveis e contratos já existem no sistema de aluguéis e têm um ID externo estável.</li>
+  <li>O titular das contas autoriza o acesso às faturas (LGPD).</li>
+</ul>
+<h3>19.3 Questões em aberto</h3>
+<table>
+  <tr><th style="width:15mm">ID</th><th>Questão</th></tr>
+  <tr><td>Q-01</td><td>Qual é o contrato (API/formato) do sistema de aluguéis para receber as contas?</td></tr>
+  <tr><td>Q-02</td><td>Qual o meio de coleta disponível em cada concessionária (API, portal, e-mail, EDI)?</td></tr>
+  <tr><td>Q-03</td><td>Quantos imóveis/UCs na largada e qual o crescimento esperado?</td></tr>
+  <tr><td>Q-04</td><td>O painel admin será web (no próprio hub) ou parte de outro sistema?</td></tr>
+  <tr><td>Q-05</td><td>Onde o hub será hospedado em produção (servidor Windows, Ubuntu, nuvem)?</td></tr>
+  <tr><td>Q-06</td><td>Confirmação do PostgreSQL como banco de dados.</td></tr>
+</table>
+
+<h2>20. Glossário</h2>
+<table>
+  <tr><th style="width:38mm">Termo</th><th>Significado</th></tr>
+  <tr><td>UC</td><td>Unidade Consumidora de energia elétrica.</td></tr>
+  <tr><td>Matrícula</td><td>Identificador do imóvel na concessionária de água.</td></tr>
+  <tr><td>Competência</td><td>Mês de referência da conta (AAAA-MM).</td></tr>
+  <tr><td>Adapter</td><td>Componente que traduz um provedor específico para a interface padrão do hub.</td></tr>
+  <tr><td>Correlation ID</td><td>Identificador único que acompanha um fluxo de negócio em todas as etapas.</td></tr>
+  <tr><td>DLQ</td><td>Dead Letter Queue: fila de mensagens que falharam definitivamente.</td></tr>
+  <tr><td>Idempotência</td><td>Processar a mesma mensagem mais de uma vez sem efeito duplicado.</td></tr>
+  <tr><td>Webhook</td><td>Chamada HTTP enviada pelo hub a um sistema externo quando ocorre um evento.</td></tr>
+  <tr><td>Lote (batch)</td><td>Conjunto de contas de um imóvel/contrato em uma competência.</td></tr>
+</table>
+
+</body>
+</html>
