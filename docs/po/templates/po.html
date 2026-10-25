@@ -219,7 +219,7 @@ upload manual) será confirmado na fase de descoberta (épico E1). O padrão ada
   <tr><td>RNF-07</td><td>Confiabilidade</td><td>Entrega "at-least-once" com consumidores idempotentes; nenhuma conta perdida em caso de queda.</td></tr>
   <tr><td>RNF-08</td><td>Segurança</td><td>Senhas com Argon2/bcrypt; credenciais de provedores cifradas (Fernet/AES-256); TLS em produção; segredos via variáveis de ambiente.</td></tr>
   <tr><td>RNF-09</td><td>LGPD</td><td>Dados pessoais minimizados, mascarados em logs; política de retenção configurável.</td></tr>
-  <tr><td>RNF-10</td><td>Testes</td><td>pytest com cobertura ≥ 80%; adapters testados com respostas gravadas (fixtures).</td></tr>
+  <tr><td>RNF-10</td><td>Testes</td><td>pytest com cobertura ≥ 80%; adapters testados com respostas gravadas (fixtures); testes executáveis em Ubuntu, Windows e Docker.</td></tr>
   <tr><td>RNF-11</td><td>Desempenho</td><td>API com p95 &lt; 300 ms em leituras; coleta paralela configurável por provedor.</td></tr>
   <tr><td>RNF-12</td><td>Observabilidade</td><td>Health checks (<code>/health</code>, <code>/ready</code>), métricas Prometheus (opcional na v1).</td></tr>
   <tr><td>RNF-13</td><td>Documentação</td><td>OpenAPI gerado automaticamente; PO versionado em PDF + infográfico a cada alteração.</td></tr>
@@ -432,11 +432,21 @@ e é a única que pode conceder permissões a outros usuários.</p>
 <h2>16. Estratégia de testes</h2>
 <table>
   <tr><th>Nível</th><th>Escopo</th><th>Ferramentas</th></tr>
-  <tr><td>Unitário</td><td>Domínio, agrupamento, normalização, adapters (com fixtures), assinatura HMAC, RBAC</td><td>pytest, pytest-asyncio, respx, freezegun</td></tr>
+  <tr><td>Unitário</td><td>Domínio, agrupamento, normalização, adapters (com fixtures), RabbitMQ com canal simulado (retry/DLQ), idempotência (fakeredis), assinatura HMAC, API e RBAC, logs/Correlation ID, gerador do PO</td><td>pytest, pytest-asyncio, respx, fakeredis, unittest.mock</td></tr>
   <tr><td>Integração</td><td>RabbitMQ, Redis e Postgres reais</td><td>testcontainers / docker compose</td></tr>
   <tr><td>Contrato</td><td>API OpenAPI e payloads de webhook/lote</td><td>schemathesis</td></tr>
-  <tr><td>CI</td><td>Lint, mypy, testes e cobertura em ubuntu-latest e windows-latest</td><td>GitHub Actions</td></tr>
+  <tr><td>CI</td><td>Lint, mypy, testes e cobertura em ubuntu-latest e windows-latest (Python 3.12 e 3.13) e dentro do container de teste</td><td>GitHub Actions</td></tr>
 </table>
+<h3>16.1 Onde os testes unitários rodam</h3>
+<p>Os testes unitários não dependem de RabbitMQ, Redis ou PostgreSQL rodando (usam simulações), então executam igual nos três ambientes.
+Todos rodam ruff, mypy e pytest com cobertura mínima de 80%.</p>
+<table>
+  <tr><th style="width:38mm">Ambiente</th><th>Comando</th></tr>
+  <tr><td>Ubuntu</td><td><code>make install</code> e <code>make test</code></td></tr>
+  <tr><td>Windows (PowerShell)</td><td><code>.\scripts\install.ps1</code> e <code>.\scripts\test.ps1</code></td></tr>
+  <tr><td>Docker (Ubuntu ou Windows)</td><td><code>make test-docker</code>, <code>./scripts/test-docker.sh</code> ou <code>.\scripts\test-docker.ps1</code> (estágio <code>test</code> do Dockerfile, serviço <code>tests</code> do Compose)</td></tr>
+</table>
+<p>Situação na v{{VERSION}}: 59 testes unitários, cobertura de 98%.</p>
 <p>Critério de pronto (DoD): código revisado, testes unitários passando, cobertura ≥ 80% no módulo alterado,
 documentação atualizada e, quando houver mudança de escopo/requisito, nova versão do PO gerada.</p>
 

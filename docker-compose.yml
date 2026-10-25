@@ -2,6 +2,7 @@ x-hub: &hub
   build:
     context: .
     dockerfile: docker/Dockerfile
+    target: runtime
   image: hub-billing:dev
   env_file: .env
   environment:
@@ -24,6 +25,15 @@ services:
   worker-grouper:    { <<: *hub, command: ["hub-worker", "grouper"] }
   worker-dispatcher: { <<: *hub, command: ["hub-worker", "dispatcher"] }
   worker-webhooks:   { <<: *hub, command: ["hub-worker", "webhooks"] }
+
+  # Testes unitários em container: docker compose run --rm tests
+  tests:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: test
+    image: hub-billing:test
+    profiles: ["test"]
 
   rabbitmq:
     image: rabbitmq:3.13-management

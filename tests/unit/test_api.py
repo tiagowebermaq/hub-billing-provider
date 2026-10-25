@@ -69,3 +69,19 @@ def test_collection_publishes_with_correlation_id(
     assert (exchange, key, env.type, env.correlation_id) == ("hub.collect", "collect.request.cpfl",
                                                              "collect.request", "fluxo-1")
     assert client.post("/api/v1/collections", json={"provider": "x"}, headers=admin_headers).status_code == 422
+
+
+def test_deactivated_user_token_is_rejected(client: TestClient, admin_headers: dict[str, str]) -> None:
+    client.post("/api/v1/users", headers=admin_headers,
+                json={"email": "c@example.com", "name": "C", "password": "senha-c-12345", "roles": ["consulta"]})
+    headers = login(client, "c@example.com", "senha-c-12345")
+    client.app.state.users.by_email("c@example.com").active = False  # type: ignore[attr-defined]
+    assert client.get("/api/v1/me", headers=headers).status_code == 401
+
+
+def test_fake_provider_hidden_outside_dev(settings, publisher) -> None:  # type: ignore[no-untyped-def]
+    from hub_billing.api.app import create_app
+
+    prod = TestClient(create_app(settings.model_copy(update={"env": "prod"}), publisher))
+    providers = prod.get("/api/v1/providers", headers=login(prod, "admin@hub.local", "admin-pass")).json()
+    assert "fake" not in providers and {"cpfl", "aegea"} <= set(providers)

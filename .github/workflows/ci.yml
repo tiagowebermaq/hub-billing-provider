@@ -27,4 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -f docker/Dockerfile -t hub-billing:ci .
+      - name: Testes unitários no container
+        run: |
+          docker build -f docker/Dockerfile --target test -t hub-billing:test .
+          docker run --rm hub-billing:test
+      - name: Imagem de produção
+        run: docker build -f docker/Dockerfile --target runtime -t hub-billing:ci .

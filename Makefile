@@ -1,11 +1,14 @@
 # Ubuntu / Linux. No Windows use os scripts em scripts\*.ps1.
-.PHONY: install test lint up down logs api po
+.PHONY: install test test-docker lint up down logs api po
 
 install:
 	python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 test:
 	.venv/bin/pytest --cov --cov-report=term-missing --cov-fail-under=80
+
+test-docker:
+	docker compose --profile test run --rm --build tests
 
 lint:
 	.venv/bin/ruff check src tests tools && .venv/bin/mypy src

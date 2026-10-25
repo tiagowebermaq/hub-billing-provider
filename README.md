@@ -22,6 +22,18 @@ docs/po/       PO versionado (PDF + infográfico por versão)
 ```
 
 ## Começando
+## Testes
+Os testes unitários rodam sem RabbitMQ, Redis ou PostgreSQL (usam simulações), nos três ambientes:
+
+| Ambiente | Comando |
+|---|---|
+| Ubuntu | `make install && make test` |
+| Windows (PowerShell) | `.\scripts\install.ps1` e depois `.\scripts\test.ps1` |
+| Docker (Ubuntu ou Windows) | `make test-docker`, `./scripts/test-docker.sh` ou `.\scripts\test-docker.ps1` |
+
+Todos executam ruff, mypy e pytest com cobertura mínima de 80%. O CI do GitHub roda a mesma bateria em
+ubuntu-latest e windows-latest (Python 3.12 e 3.13) e dentro do container.
+
 Ubuntu:
 ```
 make install && make test

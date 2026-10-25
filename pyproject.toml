@@ -47,7 +47,7 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["hub_billing"]
-omit = ["*/workers/run.py", "*/messaging/rabbit.py"]
+omit = ["*/workers/run.py"]
 
 [tool.ruff]
 line-length = 130
