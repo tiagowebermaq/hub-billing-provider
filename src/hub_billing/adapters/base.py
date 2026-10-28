@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hub_billing.collection.invoice import InvoiceParseError, ParsedInvoice, parse_text, pdf_text
 from hub_billing.domain.models import Bill, UtilityType
 
 CONSUMPTION_UNITS = {UtilityType.ENERGY: "kWh", UtilityType.WATER: "m3", UtilityType.TELECOM: None}
@@ -45,6 +46,7 @@ class ProviderAdapter(ABC):
 
     code: str
     utility_type: UtilityType
+    account_labels: tuple[str, ...] = ()
 
     def __init__(self, distributor: str | None = None) -> None:
         self.distributor = distributor
@@ -62,6 +64,34 @@ class ProviderAdapter(ABC):
 
     @abstractmethod
     async def download_document(self, session: ProviderSession, bill: RawBill) -> bytes: ...
+
+    def parse_invoice(self, pdf: bytes | None = None, text: str | None = None) -> ParsedInvoice:
+        """Lê a fatura (PDF ou texto já extraído) com os rótulos desta concessionária."""
+        if text is None:
+            if pdf is None:
+                raise InvoiceParseError("informe o PDF ou o texto da fatura")
+            text = pdf_text(pdf)
+        parsed = parse_text(text, self.account_labels)
+        if parsed.barcode is not None and not parsed.barcode.matches(self.utility_type):
+            parsed.warnings.append(
+                f"código de barras do segmento '{parsed.barcode.segment_name}' não é de {self.utility_type.value}")
+        return parsed
+
+    def raw_from_invoice(self, parsed: ParsedInvoice, account_number: str | None = None,
+                         reference_month: str | None = None, source: str = "upload") -> RawBill:
+        """Converte a fatura lida em RawBill. Os campos informados pelo operador têm prioridade."""
+        account = account_number or parsed.account_number
+        reference = reference_month or parsed.reference_month
+        missing = [n for n, v in (("número da conta", account), ("competência", reference),
+                                  ("vencimento", parsed.due_date), ("valor", parsed.amount)) if v is None]
+        if missing:
+            raise InvoiceParseError("dados não encontrados na fatura: " + ", ".join(missing))
+        assert account and reference and parsed.due_date and parsed.amount is not None
+        payload: dict[str, Any] = {"source": source, "warnings": parsed.warnings}
+        if parsed.barcode is not None:
+            payload |= {"barcode": parsed.barcode.barcode, "digitable_line": parsed.barcode.digitable_line}
+        return RawBill(provider=self.code, account_number=account, reference_month=reference,
+                       due_date=parsed.due_date, amount=parsed.amount, payload=payload)
 
     def to_canonical(self, raw: RawBill) -> Bill:
         p = raw.payload

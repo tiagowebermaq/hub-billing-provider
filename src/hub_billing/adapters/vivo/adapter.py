@@ -13,10 +13,12 @@ from hub_billing.domain.models import UtilityType
 class VivoAdapter(ProviderAdapter):
     """Telecom: contas Vivo (fixo, internet e móvel), identificadas pelo código do cliente.
 
-    O meio de coleta será definido no épico E1; até lá os métodos de coleta não estão implementados.
+    Coleta disponível: importação da fatura em PDF (parse_invoice / raw_from_invoice).
+    A coleta automática (portal, API ou EDI) depende do épico E1; até lá os métodos abaixo não estão implementados.
     """
 
     utility_type = UtilityType.TELECOM
+    account_labels = ("número da conta", "nº da conta", "código do cliente", "conta")
 
     async def authenticate(self, credentials: ProviderCredentials) -> ProviderSession:
         raise NotImplementedError("E1: definir meio de coleta da Vivo")

@@ -3,17 +3,19 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Protocol
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 
 from hub_billing import __version__
-from hub_billing.adapters.registry import available, load_builtin
+from hub_billing.adapters.registry import available, get_adapter, load_builtin
 from hub_billing.api.deps import current_user, get_app_settings, get_store, require
 from hub_billing.api.users import User, UserStore
+from hub_billing.collection.invoice import InvoiceParseError
 from hub_billing.core import correlation
 from hub_billing.core.config import Settings, get_settings
 from hub_billing.core.security import create_token, hash_password
+from hub_billing.domain.barcode import BarcodeError, from_digitable_line
 from hub_billing.domain.permissions import ROLE_DEFAULTS, Permission
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
@@ -166,6 +168,44 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
         env = Envelope(type="collect.request", producer="api", payload=body.model_dump())
         await app.state.publisher(topology.EX_COLLECT, f"collect.request.{body.provider}", env)
         return {"collection_id": env.message_id, "correlation_id": env.correlation_id}
+
+    @app.post("/api/v1/bills/import", status_code=202)
+    async def import_bill(
+        _: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))],
+        provider: Annotated[str, Form()],
+        file: Annotated[UploadFile | None, File(description="Fatura em PDF")] = None,
+        text: Annotated[str | None, Form(description="Texto da fatura, quando não houver PDF")] = None,
+        distributor: Annotated[str | None, Form()] = None,
+        account_number: Annotated[str | None, Form()] = None,
+        reference_month: Annotated[str | None, Form(description="AAAA-MM")] = None,
+    ) -> dict[str, object]:
+        """Importa uma fatura (upload manual ou encaminhada por e-mail) e a envia para normalização."""
+        if provider not in available():
+            raise HTTPException(422, f"provedor desconhecido: {provider}")
+        try:
+            adapter = get_adapter(provider, distributor)
+            pdf = await file.read() if file is not None else None
+            parsed = adapter.parse_invoice(pdf=pdf, text=text)
+            raw = adapter.raw_from_invoice(parsed, account_number, reference_month)
+            bill = adapter.to_canonical(raw)
+        except (InvoiceParseError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        env = Envelope(type="collect.result", producer="api.import",
+                       payload={"raw": raw.model_dump(mode="json"), "distributor": distributor})
+        await app.state.publisher(topology.EX_COLLECT, f"collect.result.{provider}", env)
+        return {"collection_id": env.message_id, "correlation_id": env.correlation_id,
+                "bill": bill.model_dump(mode="json"), "warnings": parsed.warnings}
+
+    @app.get("/api/v1/barcodes/{digitable_line}")
+    async def check_barcode(digitable_line: str,
+                            _: Annotated[User, Depends(require(Permission.BILLS_READ))]) -> dict[str, object]:
+        """Valida uma linha digitável de conta de consumo e mostra valor e segmento."""
+        try:
+            code = from_digitable_line(digitable_line)
+        except BarcodeError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"barcode": code.barcode, "digitable_line": code.digitable_line, "segment": code.segment_name,
+                "amount": None if code.amount is None else str(code.amount), "company_id": code.company_id}
 
     return app
 
