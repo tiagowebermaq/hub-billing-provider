@@ -16,7 +16,10 @@ from hub_billing.core import correlation
 from hub_billing.core.config import Settings, get_settings
 from hub_billing.core.security import create_token, hash_password
 from hub_billing.domain.barcode import BarcodeError, from_digitable_line
+from hub_billing.domain.grouping import group_bills
+from hub_billing.domain.models import BatchStatus, Bill, BillStatus
 from hub_billing.domain.permissions import ROLE_DEFAULTS, Permission
+from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
 
@@ -73,6 +76,15 @@ class PermissionsIn(BaseModel):
     revoke: set[Permission] = set()
 
 
+class AccountLinkIn(BaseModel):
+    property_id: str
+    contract_id: str | None = None
+
+
+class CloseBatchesIn(BaseModel):
+    reference_month: str
+
+
 class CollectionIn(BaseModel):
     provider: str
     distributor: str | None = None
@@ -80,7 +92,8 @@ class CollectionIn(BaseModel):
     reference_month: str | None = None
 
 
-def create_app(settings: Settings | None = None, publisher: Publisher | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, publisher: Publisher | None = None,
+               repo: Repository | None = None) -> FastAPI:
     settings = settings or get_settings()
     load_builtin()
     app = FastAPI(title="Hub Billing Provider", version=__version__)
@@ -88,6 +101,9 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
     app.state.users = UserStore()
     app.state.users.ensure_admin(settings.admin_email, settings.admin_password)
     app.state.publisher = publisher or MemoryPublisher()
+    app.state.repo = repo or Repository.from_url(settings.database_url)
+    app.state.repo.create_schema()
+    db: Repository = app.state.repo
 
     @app.middleware("http")
     async def correlation_middleware(
@@ -195,6 +211,56 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
         await app.state.publisher(topology.EX_COLLECT, f"collect.result.{provider}", env)
         return {"collection_id": env.message_id, "correlation_id": env.correlation_id,
                 "bill": bill.model_dump(mode="json"), "warnings": parsed.warnings}
+
+    @app.put("/api/v1/accounts/{provider}/{account_number}")
+    async def link_account(provider: str, account_number: str, body: AccountLinkIn,
+                           _: Annotated[User, Depends(require(Permission.ACCOUNTS_WRITE))]) -> dict[str, object]:
+        """Vincula a conta da concessionária (UC, matrícula, código do cliente) a um imóvel/contrato."""
+        if provider not in available():
+            raise HTTPException(422, f"provedor desconhecido: {provider}")
+        released = db.link_account(provider, account_number, body.property_id, body.contract_id)
+        return {"provider": provider, "account_number": account_number, **body.model_dump(),
+                "bills_released": released}
+
+    @app.get("/api/v1/accounts")
+    async def list_accounts(_: Annotated[User, Depends(require(Permission.BILLS_READ))]) -> list[dict[str, object]]:
+        return db.list_links()
+
+    @app.get("/api/v1/bills", response_model=list[Bill])
+    async def list_bills(_: Annotated[User, Depends(require(Permission.BILLS_READ))],
+                         reference_month: str | None = None, status: BillStatus | None = None) -> list[Bill]:
+        return db.list_bills(reference_month, status)
+
+    @app.post("/api/v1/batches/close", status_code=202)
+    async def close_batches(body: CloseBatchesIn,
+                            _: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))]) -> dict[str, object]:
+        """Fecha os lotes da competência (por imóvel/contrato) e os envia ao sistema de aluguéis."""
+        ready = db.list_bills(body.reference_month, BillStatus.NORMALIZED)
+        env = Envelope(type="batch.close", producer="api", payload=body.model_dump())
+        created = group_bills(ready, env.correlation_id)
+        for batch in created:
+            db.save_batch(batch)
+            out = env.derive("batch.ready", "api", {"batch_id": batch.id, "total": str(batch.total)})
+            await app.state.publisher(topology.EX_BILLS, "batch.ready", out)
+        pending = len(db.list_bills(body.reference_month, BillStatus.MANUAL_REVIEW))
+        return {"correlation_id": env.correlation_id, "batches": [b.id for b in created],
+                "bills": sum(len(b.bills) for b in created), "pending_manual_review": pending}
+
+    @app.get("/api/v1/batches")
+    async def list_batches(_: Annotated[User, Depends(require(Permission.BATCHES_READ))],
+                           reference_month: str | None = None) -> list[dict[str, object]]:
+        return db.list_batches(reference_month)
+
+    @app.post("/api/v1/batches/{batch_id}/resend", status_code=202)
+    async def resend_batch(batch_id: str,
+                           _: Annotated[User, Depends(require(Permission.BATCHES_RESEND))]) -> dict[str, str]:
+        batch = db.get_batch(batch_id)
+        if batch is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "lote não encontrado")
+        db.set_batch_status(batch_id, BatchStatus.READY)
+        env = Envelope(type="batch.ready", producer="api.resend", payload={"batch_id": batch_id, "total": str(batch.total)})
+        await app.state.publisher(topology.EX_BILLS, "batch.ready", env)
+        return {"batch_id": batch_id, "correlation_id": env.correlation_id}
 
     @app.get("/api/v1/barcodes/{digitable_line}")
     async def check_barcode(digitable_line: str,

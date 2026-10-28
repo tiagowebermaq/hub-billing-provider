@@ -8,7 +8,7 @@ from hub_billing.core.config import Settings
 @pytest.fixture
 def settings() -> Settings:
     return Settings(_env_file=None, env="dev", jwt_secret="test-secret-with-at-least-32-bytes!!", admin_email="admin@hub.local",
-                    admin_password="admin-pass")
+                    admin_password="admin-pass", database_url="sqlite+pysqlite:///:memory:")
 
 
 @pytest.fixture
