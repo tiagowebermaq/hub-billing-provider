@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     rental_api_url: str = "http://localhost:9000/api/bills"
     rental_api_secret: str = ""
     rental_timeout_seconds: float = 15.0
+    aegea_apim_key: str = ""
     idempotency_ttl_seconds: int = 7 * 24 * 3600
     webhook_timeout_seconds: float = 10.0
 

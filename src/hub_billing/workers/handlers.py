@@ -1,7 +1,9 @@
 """Lógica dos workers como funções puras sobre envelopes, testáveis sem RabbitMQ."""
 from collections.abc import Callable
 
-from hub_billing.adapters.base import RawBill
+import httpx
+
+from hub_billing.adapters.base import RawBill, SessionExpired
 from hub_billing.adapters.registry import get_adapter
 from hub_billing.domain.grouping import group_bills
 from hub_billing.domain.models import BatchStatus, Bill
@@ -11,6 +13,33 @@ from hub_billing.messaging.envelope import Envelope
 from hub_billing.rental.client import RentalClient, RentalRejected
 
 PropertyLookup = Callable[[str, str], tuple[str, str | None] | None]
+
+
+async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
+                  options: dict[str, str] | None = None) -> list[Envelope]:
+    """collect.request -> um collect.result por conta encontrada no portal.
+
+    Sem sessão válida devolve só o evento collect.login_required (vai para os webhooks), sem retry: o login
+    assistido precisa ser refeito por uma pessoa.
+    """
+    p = env.payload
+    provider, distributor = p["provider"], p.get("distributor")
+    stored = repo.load_session(provider, distributor)
+    adapter = get_adapter(provider, distributor).use(http, **(options or {}))
+    try:
+        if stored is None:
+            raise SessionExpired(f"nenhuma sessão salva para {provider}: faça o login assistido")
+        session = await adapter.resume(stored[0])
+        repo.save_session(provider, distributor, session.data, None)
+        accounts = await adapter.list_accounts(session)
+        if p.get("account_number"):
+            accounts = [a for a in accounts if a.account_number == p["account_number"]]
+        raws = [raw for account in accounts for raw in await adapter.fetch_bills(session, account, p.get("reference_month"))]
+    except SessionExpired as exc:
+        return [env.derive("collect.login_required", "collector",
+                           {"provider": provider, "distributor": distributor, "reason": str(exc)})]
+    return [env.derive("collect.result", "collector", {"raw": raw.model_dump(mode="json"), "distributor": distributor})
+            for raw in raws]
 
 
 async def normalize(env: Envelope, guard: IdempotencyGuard, lookup: PropertyLookup) -> Envelope | None:

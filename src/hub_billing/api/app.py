@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Protocol
+from datetime import datetime
+from typing import Annotated, Any, Protocol
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -81,6 +82,12 @@ class AccountLinkIn(BaseModel):
     contract_id: str | None = None
 
 
+class ProviderSessionIn(BaseModel):
+    distributor: str | None = None
+    data: dict[str, Any]
+    expires_at: datetime | None = None
+
+
 class CloseBatchesIn(BaseModel):
     reference_month: str
 
@@ -101,7 +108,7 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
     app.state.users = UserStore()
     app.state.users.ensure_admin(settings.admin_email, settings.admin_password)
     app.state.publisher = publisher or MemoryPublisher()
-    app.state.repo = repo or Repository.from_url(settings.database_url)
+    app.state.repo = repo or Repository.from_url(settings.database_url, settings.encryption_key)
     app.state.repo.create_schema()
     db: Repository = app.state.repo
 
@@ -175,6 +182,18 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
     @app.get("/api/v1/providers")
     async def providers(_: Annotated[User, Depends(require(Permission.BILLS_READ))]) -> list[str]:
         return [p for p in available() if p != "fake" or settings.env == "dev"]
+
+    @app.put("/api/v1/providers/{provider}/session", status_code=204)
+    async def save_provider_session(provider: str, body: ProviderSessionIn,
+                                    _: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> None:
+        """Recebe os tokens do login assistido (tools/login_portal.py). Ficam cifrados; a senha nunca passa pelo hub."""
+        if provider not in available():
+            raise HTTPException(422, f"provedor desconhecido: {provider}")
+        db.save_session(provider, body.distributor, body.data, body.expires_at)
+
+    @app.get("/api/v1/providers/sessions")
+    async def provider_sessions(_: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> list[dict[str, object]]:
+        return db.list_sessions()
 
     @app.post("/api/v1/collections", status_code=202)
     async def start_collection(body: CollectionIn,

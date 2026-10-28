@@ -62,6 +62,16 @@ e o número da conta. `account_number` e `reference_month` podem ser enviados pa
 (valor impresso diferente do código, segmento de outra concessionária) voltam em `warnings`.
 `GET /api/v1/barcodes/{linha}` só valida uma linha digitável.
 
+## Coleta automática pelos portais (RGE/CPFL e Corsan/Aegea)
+Os portais usam login da Microsoft (B2C) com código de verificação, então o login é feito por uma pessoa e o hub
+reaproveita o token. No PC onde o hub roda (precisa de `pip install -e ".[portal]"` e `python -m playwright install chromium`):
+```
+python tools/login_portal.py cpfl --distributor rge       # abre o portal da RGE; entre normalmente
+python tools/login_portal.py aegea --distributor corsan   # idem na Corsan
+```
+Depois dispare a coleta por `POST /api/v1/collections`. A senha do portal nunca é guardada: só o token, cifrado com
+`HUB_ENCRYPTION_KEY` (a mesma na API e nos workers). Detalhes em `docs/descoberta-portais.md`.
+
 ## Correlation ID
 Envie `X-Correlation-ID` (ou deixe o hub gerar). Ele volta na resposta e acompanha mensagens, logs, envio ao
 sistema de aluguéis e webhooks.
@@ -92,5 +102,5 @@ python tools/build_po.py --bump minor -m "Descrição da alteração" --git    #
 Pronto: fundação, Correlation ID, domínio, agrupamento, permissões, API de usuários/coleta, topologia de filas,
 idempotência, webhooks assinados, importação de fatura em PDF com validação FEBRABAN, persistência (vínculos, contas e
 lotes) e envio ao sistema de aluguéis com retry, todos com testes.
-Pendente: coleta automática por concessionária (épico E1: portal, API, e-mail ou EDI), contrato definitivo da API do sistema
+Pendente: confirmar a coleta automática da RGE e da Corsan no primeiro login real, coleta da Vivo, contrato definitivo da API do sistema
 de aluguéis, cadastro de assinaturas de webhook e migrações de banco (hoje o schema é criado no boot).

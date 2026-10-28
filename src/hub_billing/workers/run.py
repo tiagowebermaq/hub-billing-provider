@@ -29,10 +29,11 @@ async def _run(name: str) -> None:
     connection = await aio_pika.connect_robust(settings.rabbitmq_url)
     channel = await connection.channel()
     await rabbit.declare(channel)
-    repo = Repository.from_url(settings.database_url)
+    repo = Repository.from_url(settings.database_url, settings.encryption_key)
     repo.create_schema()
     guard = IdempotencyGuard(Redis.from_url(settings.redis_url), settings.idempotency_ttl_seconds)
-    rental = RentalClient(httpx.AsyncClient(), settings.rental_api_url, settings.rental_api_secret,
+    http = httpx.AsyncClient(timeout=30)
+    rental = RentalClient(http, settings.rental_api_url, settings.rental_api_secret,
                           settings.rental_timeout_seconds)
 
     async def emit(out: Envelope | None, exchange: str, key: str) -> None:
@@ -41,14 +42,20 @@ async def _run(name: str) -> None:
 
     async def handler(env: Envelope) -> None:
         extra = {"extra_fields": {"worker": name, "message_id": env.message_id}}
-        if name == "normalizer":
+        if name == "collector":
+            options = {"apim_key": settings.aegea_apim_key} if env.payload.get("provider") == "aegea" else {}
+            for out in await handlers.collect(env, repo, http, options):
+                if out.type == "collect.result":
+                    await emit(out, topology.EX_COLLECT, f"collect.result.{env.payload['provider']}")
+                else:
+                    await emit(out, topology.EX_EVENTS, "")
+        elif name == "normalizer":
             await emit(await handlers.normalize(env, guard, repo.find_link), topology.EX_BILLS, "bill.normalized")
         elif name == "grouper":
             await emit(handlers.store_bill(env, repo), topology.EX_EVENTS, "")
         elif name == "dispatcher":
             await emit(await handlers.dispatch(env, repo, rental), topology.EX_EVENTS, "")
         else:
-            # collector: coleta automática depende do épico E1 (hoje as contas entram por /api/v1/bills/import).
             # webhooks: entrega aos assinantes entra com o cadastro de assinaturas.
             log.info("recebido %s", env.type, extra=extra)
 

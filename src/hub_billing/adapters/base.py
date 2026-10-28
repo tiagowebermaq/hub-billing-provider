@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, Field
 
 from hub_billing.collection.invoice import InvoiceParseError, ParsedInvoice, parse_text, pdf_text
@@ -28,6 +29,11 @@ class ProviderAccount(BaseModel):
     account_number: str
     holder: str | None = None
     address: str | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionExpired(RuntimeError):
+    """A sessão do portal expirou e não pôde ser renovada: é preciso refazer o login assistido."""
 
 
 class RawBill(BaseModel):
@@ -50,6 +56,23 @@ class ProviderAdapter(ABC):
 
     def __init__(self, distributor: str | None = None) -> None:
         self.distributor = distributor
+        self.http: httpx.AsyncClient | None = None
+        self.options: dict[str, str] = {}
+
+    def use(self, http: httpx.AsyncClient, **options: str) -> ProviderAdapter:
+        """Injeta o cliente HTTP e opções (ex.: chaves públicas do portal) usados na coleta automática."""
+        self.http = http
+        self.options = options
+        return self
+
+    def _client(self) -> httpx.AsyncClient:
+        if self.http is None:
+            raise RuntimeError(f"adapter {self.code} sem cliente HTTP: chame use(http) antes de coletar")
+        return self.http
+
+    async def resume(self, data: dict[str, Any]) -> ProviderSession:
+        """Retoma a sessão salva pelo login assistido (tools/login_portal.py), renovando o token se preciso."""
+        raise NotImplementedError(f"{self.code}: coleta automática ainda não disponível")
 
     @abstractmethod
     async def authenticate(self, credentials: ProviderCredentials) -> ProviderSession: ...
