@@ -14,6 +14,7 @@ _YM = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 class UtilityType(StrEnum):
     ENERGY = "ENERGY"
     WATER = "WATER"
+    TELECOM = "TELECOM"
 
 
 class BillStatus(StrEnum):

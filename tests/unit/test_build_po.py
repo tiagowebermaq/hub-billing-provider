@@ -47,3 +47,28 @@ def test_refuses_to_overwrite_published_version(build_po: ModuleType) -> None:
     pytest.importorskip("playwright")
     with pytest.raises(SystemExit):
         build_po.build("1.0.0")
+
+
+def test_parse_merged_prs_handles_merge_and_squash(build_po: ModuleType) -> None:
+    log = ("Merge pull request #12 from weber/vivo\x1fAdapter Vivo\n\x1e"
+           "Corrige typo\x1f\x1e"
+           "Adiciona webhooks (#11)\x1f\x1e")
+    assert build_po.parse_merged_prs(log) == ["PR #11: Adiciona webhooks", "PR #12: Adapter Vivo"]
+
+
+@pytest.mark.parametrize(("count", "bumped"), [(9, False), (10, True)])
+def test_every_prs_only_bumps_after_threshold(build_po: ModuleType, monkeypatch: pytest.MonkeyPatch,
+                                              count: int, bumped: bool) -> None:
+    version_file = build_po.PO_DIR / "VERSION"
+    version_file.write_text("1.2.0\n", encoding="utf-8")
+    monkeypatch.setattr(build_po, "VERSION_FILE", version_file)
+    monkeypatch.setattr(build_po, "last_po_tag", lambda: "po-v1.2.0")
+    monkeypatch.setattr(build_po, "merged_prs_since", lambda tag: [f"PR #{i}: t{i}" for i in range(count)])
+    built: list[str] = []
+    monkeypatch.setattr(build_po, "build", lambda v: built.append(v) or build_po.PO_DIR / f"v{v}")
+    monkeypatch.setattr("sys.argv", ["build_po.py", "--every-prs", "10"])
+    build_po.main()
+    assert built == (["1.3.0"] if bumped else [])
+    assert version_file.read_text(encoding="utf-8").strip() == ("1.3.0" if bumped else "1.2.0")
+    if bumped:
+        assert build_po.parse_changelog()[0][3][1:] == [f"PR #{i}: t{i}" for i in range(10)]

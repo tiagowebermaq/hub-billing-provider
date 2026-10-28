@@ -4,6 +4,7 @@ Uso (Windows ou Ubuntu):
     python tools/build_po.py                         # regera a versão atual (falha se já existir)
     python tools/build_po.py --bump minor -m "Adiciona provedor X" [-m "outro item"]
     python tools/build_po.py --bump patch -m "Corrige texto" --git   # também faz commit + tag
+    python tools/build_po.py --every-prs 10 --git    # nova versão MINOR só quando houver 10 PRs desde a última tag po-v*
 
 Requisitos: pip install playwright && python -m playwright install chromium
 """
@@ -23,6 +24,8 @@ PO_DIR = ROOT / "docs" / "po"
 TEMPLATES = PO_DIR / "templates"
 VERSION_FILE = PO_DIR / "VERSION"
 CHANGELOG = PO_DIR / "CHANGELOG.md"
+PR_MERGE_RE = re.compile(r"^Merge pull request #(?P<n>\d+)")
+PR_SQUASH_RE = re.compile(r"^(?P<t>.+) \(#(?P<n>\d+)\)$")
 ENTRY_RE = re.compile(r"^## \[(?P<v>[^\]]+)\] - (?P<d>\S+) - (?P<a>.+)$")
 MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
          "agosto", "setembro", "outubro", "novembro", "dezembro"]
@@ -73,6 +76,36 @@ def render(template: str, version: str) -> str:
                     .replace("{{CHANGELOG_ROWS}}", changelog_rows()))
 
 
+def git_output(*args: str) -> str:
+    return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True, text=True,
+                          encoding="utf-8").stdout
+
+
+def last_po_tag() -> str | None:
+    try:
+        return git_output("describe", "--tags", "--match", "po-v*", "--abbrev=0").strip() or None
+    except subprocess.CalledProcessError:
+        return None
+
+
+def parse_merged_prs(log: str) -> list[str]:
+    """Extrai 'PR #n: título' de um git log --first-parent --format=%s%x1f%b%x1e (merge commit ou squash)."""
+    prs = []
+    for record in filter(None, (r.strip() for r in log.split("\x1e"))):
+        subject, _, body = record.partition("\x1f")
+        if m := PR_MERGE_RE.match(subject):
+            title = next((ln.strip() for ln in body.splitlines() if ln.strip()), subject)
+            prs.append(f"PR #{m['n']}: {title}")
+        elif m := PR_SQUASH_RE.match(subject):
+            prs.append(f"PR #{m['n']}: {m['t']}")
+    return list(reversed(prs))
+
+
+def merged_prs_since(tag: str | None) -> list[str]:
+    rev = f"{tag}..HEAD" if tag else "HEAD"
+    return parse_merged_prs(git_output("log", "--first-parent", "--format=%s%x1f%b%x1e", rev))
+
+
 def build(version: str) -> Path:
     from playwright.sync_api import sync_playwright
 
@@ -119,10 +152,19 @@ def main() -> None:
     ap.add_argument("--bump", choices=["major", "minor", "patch"])
     ap.add_argument("-m", "--message", action="append", default=[], help="item do changelog (repetível)")
     ap.add_argument("--author", default=os.environ.get("PO_AUTHOR", "Weber"))
+    ap.add_argument("--every-prs", type=int, metavar="N",
+                    help="gera nova versão MINOR só se houver N PRs mergeados desde a última tag po-v*")
     ap.add_argument("--git", action="store_true", help="commit, tag po-vX.Y.Z e push")
     args = ap.parse_args()
 
     version = VERSION_FILE.read_text(encoding="utf-8").strip()
+    if args.every_prs:
+        tag = last_po_tag()
+        prs = merged_prs_since(tag)
+        if len(prs) < args.every_prs:
+            print(f"{len(prs)}/{args.every_prs} PRs desde {tag or 'o início'}: nenhuma versão nova do PO.")
+            return
+        args.bump, args.message = "minor", [f"Versão automática após {len(prs)} PRs mergeados.", *prs]
     if args.bump:
         if not args.message:
             sys.exit("Informe ao menos um -m descrevendo a alteração.")

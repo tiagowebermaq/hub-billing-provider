@@ -51,7 +51,7 @@
   <div class="band">
     <p>Product Owner Document</p>
     <h1>PO Hub Billing Provider</h1>
-    <p>Hub de agrupamento de contas recorrentes de energia (CPFL / RGE) e água (Aegea / Corsan) com envio ao sistema de aluguéis</p>
+    <p>Hub de agrupamento de contas recorrentes de energia (CPFL / RGE), água (Aegea / Corsan) e telecom (Vivo) com envio ao sistema de aluguéis</p>
   </div>
   <table class="meta">
     <tr><td>Versão do documento</td><td><b>v{{VERSION}}</b></td></tr>
@@ -96,18 +96,18 @@
 
 <h2>2. Visão do produto</h2>
 <p>O <b>Hub Billing Provider</b> é um serviço central que coleta, normaliza e agrupa as contas recorrentes de consumo
-(energia elétrica e água) dos imóveis administrados, vincula cada conta ao imóvel e ao contrato de locação correspondente
+(energia elétrica, água e telecom) dos imóveis administrados, vincula cada conta ao imóvel e ao contrato de locação correspondente
 e entrega essas contas, de forma confiável e rastreável, ao <b>sistema de aluguéis</b>.</p>
 <p>O hub também expõe uma <b>API REST</b> e emite <b>webhooks</b> para que outros sistemas, acoplados no futuro,
 consumam os mesmos dados sem integração direta com as concessionárias.</p>
 <div class="note"><b>Declaração de visão:</b> para administradores de imóveis que precisam repassar contas de consumo
-aos contratos de locação, o Hub Billing Provider é a fonte única e auditável de contas de energia e água,
+aos contratos de locação, o Hub Billing Provider é a fonte única e auditável de contas de energia, água e telecom,
 que elimina a coleta manual por concessionária e entrega as contas prontas para cobrança.</div>
 
 <h2>3. Problema, objetivos e métricas de sucesso</h2>
 <h3>3.1 Problema</h3>
 <ul>
-  <li>Cada concessionária (CPFL/RGE, Aegea/Corsan) tem portal, formato e calendário próprios.</li>
+  <li>Cada fornecedor (CPFL/RGE, Aegea/Corsan, Vivo) tem portal, formato e calendário próprios.</li>
   <li>A coleta manual é lenta, sujeita a erro e não deixa trilha de auditoria.</li>
   <li>O sistema de aluguéis precisa receber as contas já vinculadas ao imóvel/contrato, sem duplicidade.</li>
 </ul>
@@ -135,9 +135,9 @@ que elimina a coleta manual por concessionária e entrega as contas prontas para
   <div class="box">
     <h3>Dentro do escopo (v1)</h3>
     <ul>
-      <li>Cadastro de imóveis, unidades consumidoras (energia) e matrículas (água).</li>
+      <li>Cadastro de imóveis, unidades consumidoras (energia), matrículas (água) e contas/linhas Vivo (telecom).</li>
       <li>Cadastro de credenciais de acesso por provedor, armazenadas cifradas.</li>
-      <li>Coleta agendada e sob demanda via adapters CPFL/RGE e Aegea/Corsan.</li>
+      <li>Coleta agendada e sob demanda via adapters CPFL/RGE, Aegea/Corsan e Vivo.</li>
       <li>Normalização para o modelo canônico de conta.</li>
       <li>Agrupamento por imóvel / contrato / competência.</li>
       <li>Envio ao sistema de aluguéis.</li>
@@ -152,7 +152,7 @@ que elimina a coleta manual por concessionária e entrega as contas prontas para
     <ul>
       <li>Pagamento das contas pelo hub.</li>
       <li>Cobrança ao inquilino (responsabilidade do sistema de aluguéis).</li>
-      <li>Outras utilidades (gás, internet, condomínio), previstas para versões futuras.</li>
+      <li>Outras utilidades (gás, condomínio, outras operadoras de telecom), previstas para versões futuras.</li>
       <li>Aplicativo mobile.</li>
       <li>OCR avançado de contas digitalizadas em papel.</li>
     </ul>
@@ -167,7 +167,7 @@ que elimina a coleta manual por concessionária e entrega as contas prontas para
   <tr><td>Usuário consulta</td><td>Apenas visualiza contas, status e relatórios.</td></tr>
   <tr><td>Sistema de aluguéis</td><td>Consumidor principal; recebe as contas agrupadas.</td></tr>
   <tr><td>Sistemas acoplados</td><td>Consomem a API e/ou assinam webhooks com uma chave de API (client credentials).</td></tr>
-  <tr><td>Concessionárias</td><td>CPFL/RGE e Aegea/Corsan: fontes das contas.</td></tr>
+  <tr><td>Concessionárias</td><td>CPFL/RGE, Aegea/Corsan e Vivo: fontes das contas.</td></tr>
 </table>
 
 <h2>6. Provedores suportados</h2>
@@ -177,6 +177,7 @@ que elimina a coleta manual por concessionária e entrega as contas prontas para
   <tr><td>RGE (grupo CPFL)</td><td>Energia</td><td>Unidade Consumidora (UC)</td><td>Adapter <code>cpfl</code> com distribuidora <code>rge</code></td></tr>
   <tr><td>Corsan (grupo Aegea)</td><td>Água / esgoto</td><td>Matrícula / Código do imóvel</td><td>Adapter <code>aegea</code> com unidade <code>corsan</code></td></tr>
   <tr><td>Demais unidades Aegea</td><td>Água / esgoto</td><td>Matrícula</td><td>Mesmo adapter, configurável por unidade</td></tr>
+  <tr><td>Vivo (Telefônica Brasil)</td><td>Telecom (fixo, internet, móvel)</td><td>Código do cliente / Nº da conta / linha</td><td>Adapter <code>vivo</code></td></tr>
 </table>
 <div class="note">O meio de coleta de cada provedor (API oficial, portal do cliente, e-mail com fatura, arquivo EDI/CNAB ou
 upload manual) será confirmado na fase de descoberta (épico E1). O padrão adapter isola essa decisão do restante do hub.</div>
@@ -231,7 +232,8 @@ upload manual) será confirmado na fase de descoberta (épico E1). O padrão ada
  Concessionárias            Hub Billing Provider                                Consumidores
  ┌─────────────┐   ┌──────────────────────────────────────────────────┐   ┌──────────────────┐
  │ CPFL / RGE  │◄──┤ Adapter cpfl  ┐                                   │   │ Sistema de       │
- │ Aegea/Corsan│◄──┤ Adapter aegea ┤─► [collect.result] ─► Normalizer   │   │ aluguéis         │
+ │ Aegea/Corsan│◄──┤ Adapter aegea ┤─► [collect.result] ─► Normalizer   │
+ │ Vivo        │◄──┤ Adapter vivo  ┤                                   │   │ aluguéis         │
  └─────────────┘   │      ▲        │                          │         │   └────────▲─────────┘
                    │      │        │                          ▼         │            │
                    │ [collect.req] │                [bill.normalized]   │            │
@@ -271,7 +273,8 @@ hub-billing-provider/
 │  ├─ adapters/
 │  │  ├─ base.py      # interface ProviderAdapter
 │  │  ├─ cpfl/        # CPFL + RGE
-│  │  └─ aegea/       # Aegea + Corsan
+│  │  ├─ aegea/       # Aegea + Corsan
+│  │  └─ vivo/        # Vivo (telecom)
 │  ├─ messaging/      # publisher/consumer RabbitMQ, topologia
 │  ├─ workers/        # collector, normalizer, grouper, dispatchers
 │  ├─ webhooks/       # assinaturas, assinatura HMAC, entrega
@@ -325,8 +328,8 @@ hub-billing-provider/
 <p>Cada concessionária é implementada como um adapter que obedece a uma interface única. O restante do hub nunca conhece
 detalhes do provedor. Adapters são registrados por nome e habilitados por configuração.</p>
 <pre>class ProviderAdapter(Protocol):
-    code: str                       # "cpfl", "aegea"
-    utility_type: UtilityType       # ENERGY | WATER
+    code: str                       # "cpfl", "aegea", "vivo"
+    utility_type: UtilityType       # ENERGY | WATER | TELECOM
 
     async def authenticate(self, credentials: ProviderCredentials) -> Session: ...
     async def list_accounts(self, session: Session) -> list[ProviderAccount]: ...
@@ -446,7 +449,7 @@ Todos rodam ruff, mypy e pytest com cobertura mínima de 80%.</p>
   <tr><td>Windows (PowerShell)</td><td><code>.\scripts\install.ps1</code> e <code>.\scripts\test.ps1</code></td></tr>
   <tr><td>Docker (Ubuntu ou Windows)</td><td><code>make test-docker</code>, <code>./scripts/test-docker.sh</code> ou <code>.\scripts\test-docker.ps1</code> (estágio <code>test</code> do Dockerfile, serviço <code>tests</code> do Compose)</td></tr>
 </table>
-<p>Situação na v{{VERSION}}: 59 testes unitários, cobertura de 98%.</p>
+<p>Situação na v{{VERSION}}: 63 testes unitários, cobertura de 98%.</p>
 <p>Critério de pronto (DoD): código revisado, testes unitários passando, cobertura ≥ 80% no módulo alterado,
 documentação atualizada e, quando houver mudança de escopo/requisito, nova versão do PO gerada.</p>
 
@@ -459,8 +462,12 @@ documentação atualizada e, quando houver mudança de escopo/requisito, nova ve
       <li><b>PATCH</b>: correções de texto, esclarecimentos, ajustes de prioridade.</li>
     </ul>
   </li>
-  <li>Toda alteração gera <b>novo PDF e novo infográfico</b>: <code>docs/po/vX.Y.Z/PO_Hub_Billing_Provider_vX.Y.Z.pdf</code> e
+  <li>A cada <b>10 PRs mergeados</b> na <code>main</code> é gerado automaticamente um <b>novo PDF e um novo infográfico</b>
+      (versão MINOR), com os títulos dos PRs no changelog: <code>docs/po/vX.Y.Z/PO_Hub_Billing_Provider_vX.Y.Z.pdf</code> e
       <code>Infografico_Hub_Billing_Provider_vX.Y.Z.(pdf|png)</code>. Versões anteriores nunca são sobrescritas.</li>
+  <li>Automação: GitHub Action <code>po-release</code> executa <code>python tools/build_po.py --every-prs 10 --git</code> a cada push na
+      <code>main</code>; o contador zera a cada nova tag <code>po-vX.Y.Z</code>.</li>
+  <li>Mudanças de visão/escopo (MAJOR) ou urgentes podem gerar versão manual a qualquer momento com <code>--bump</code>.</li>
   <li>O arquivo <code>docs/po/VERSION</code> guarda a versão atual e <code>docs/po/CHANGELOG.md</code> o histórico (também impresso na seção 1).</li>
   <li>Geração: <code>python tools/build_po.py --bump minor -m "descrição"</code> (funciona em Windows e Ubuntu).</li>
   <li>Os artefatos são salvos no PC (pasta local do projeto) e no GitHub (commit + tag <code>po-vX.Y.Z</code>).</li>
@@ -470,12 +477,13 @@ documentação atualizada e, quando houver mudança de escopo/requisito, nova ve
 <table>
   <tr><th style="width:12mm">Épico</th><th style="width:44mm">Nome</th><th>Histórias principais</th><th style="width:16mm">Sprint</th></tr>
   <tr><td>E0</td><td>Fundação</td><td>Repositório, pyproject, lint/mypy, Docker Compose, CI Windows+Ubuntu, logging JSON com Correlation ID, gerador do PO.</td><td>1</td></tr>
-  <tr><td>E1</td><td>Descoberta de provedores</td><td>Levantar meio de coleta CPFL/RGE e Aegea/Corsan (API, portal, e-mail, EDI); anonimizar amostras de faturas.</td><td>1</td></tr>
+  <tr><td>E1</td><td>Descoberta de provedores</td><td>Levantar meio de coleta CPFL/RGE, Aegea/Corsan e Vivo (API, portal, e-mail, EDI); anonimizar amostras de faturas.</td><td>1</td></tr>
   <tr><td>E2</td><td>Acesso e usuários</td><td>Conta admin inicial, login JWT, CRUD de usuários, perfis e permissões, auditoria.</td><td>2</td></tr>
   <tr><td>E3</td><td>Cadastros</td><td>Imóveis, contratos, UCs/matrículas, credenciais cifradas.</td><td>2</td></tr>
   <tr><td>E4</td><td>Mensageria</td><td>Topologia RabbitMQ, envelope, retry/DLQ, idempotência no Redis.</td><td>3</td></tr>
   <tr><td>E5</td><td>Adapter CPFL/RGE</td><td>Autenticação, listagem de UCs, coleta, download do PDF, normalização, testes.</td><td>3–4</td></tr>
   <tr><td>E6</td><td>Adapter Aegea/Corsan</td><td>Idem para matrículas de água.</td><td>4–5</td></tr>
+  <tr><td>E6b</td><td>Adapter Vivo</td><td>Idem para contas de telecom (código do cliente / linha).</td><td>5</td></tr>
   <tr><td>E7</td><td>Agrupamento e envio</td><td>Grouper, lotes, Rental Dispatcher, ack e reenvio.</td><td>5</td></tr>
   <tr><td>E8</td><td>API pública e webhooks</td><td>Endpoints de leitura, client credentials, assinaturas, HMAC, entregas, DLQ.</td><td>6</td></tr>
   <tr><td>E9</td><td>Painel admin e operação</td><td>Dashboard de filas/coletas, reprocessamento, alertas de conta ausente, upload manual.</td><td>7</td></tr>
@@ -522,6 +530,7 @@ documentação atualizada e, quando houver mudança de escopo/requisito, nova ve
   <tr><th style="width:38mm">Termo</th><th>Significado</th></tr>
   <tr><td>UC</td><td>Unidade Consumidora de energia elétrica.</td></tr>
   <tr><td>Matrícula</td><td>Identificador do imóvel na concessionária de água.</td></tr>
+  <tr><td>Código do cliente (Vivo)</td><td>Identificador da conta de telecom na Vivo.</td></tr>
   <tr><td>Competência</td><td>Mês de referência da conta (AAAA-MM).</td></tr>
   <tr><td>Adapter</td><td>Componente que traduz um provedor específico para a interface padrão do hub.</td></tr>
   <tr><td>Correlation ID</td><td>Identificador único que acompanha um fluxo de negócio em todas as etapas.</td></tr>

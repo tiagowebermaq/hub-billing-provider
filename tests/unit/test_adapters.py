@@ -11,7 +11,7 @@ load_builtin()
 
 
 def test_builtin_adapters_registered() -> None:
-    assert {"cpfl", "aegea", "fake"} <= set(available())
+    assert {"cpfl", "aegea", "vivo", "fake"} <= set(available())
 
 
 def test_unknown_provider() -> None:
@@ -27,8 +27,9 @@ def test_cpfl_accepts_rge_and_rejects_unknown_distributor() -> None:
 
 @pytest.mark.parametrize(("code", "dist", "kind", "unit"), [
     ("cpfl", "rge", UtilityType.ENERGY, "kWh"), ("aegea", "corsan", UtilityType.WATER, "m3"),
+    ("vivo", None, UtilityType.TELECOM, None),
 ])
-def test_to_canonical(code: str, dist: str, kind: UtilityType, unit: str) -> None:
+def test_to_canonical(code: str, dist: str | None, kind: UtilityType, unit: str | None) -> None:
     raw = RawBill(provider=code, account_number="123", reference_month="2026-10", due_date=date(2026, 10, 15),
                   amount=Decimal("99.90"), payload={"digitable_line": "8360000", "consumption": "12"})
     b = get_adapter(code, dist).to_canonical(raw)
@@ -49,5 +50,7 @@ async def test_fake_adapter_full_flow() -> None:
 async def test_real_adapters_pending_discovery() -> None:
     with pytest.raises(NotImplementedError):
         await get_adapter("aegea", "corsan").list_accounts(None)  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError):
+        await get_adapter("vivo").authenticate(ProviderCredentials(login="u", secret="s"))
     with pytest.raises(NotImplementedError):
         await get_adapter("cpfl").fetch_bills(None, ProviderAccount(account_number="1"))  # type: ignore[arg-type]

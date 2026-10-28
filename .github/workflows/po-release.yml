@@ -1,0 +1,31 @@
+name: PO release
+
+# A cada 10 PRs mergeados na main desde a última tag po-v*, gera um novo PO (PDF + infográfico),
+# faz commit, cria a tag po-vX.Y.Z e envia. Com menos de 10 PRs, não faz nada.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: po-release
+  cancel-in-progress: false
+
+jobs:
+  po:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright && python -m playwright install --with-deps chromium
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - run: python tools/build_po.py --every-prs 10 --git
