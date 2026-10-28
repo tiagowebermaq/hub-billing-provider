@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     database_url: str = "postgresql+psycopg://hub:hub@localhost:5432/hub"
     rental_api_url: str = "http://localhost:9000/api/bills"
+    rental_api_secret: str = ""
+    rental_timeout_seconds: float = 15.0
     idempotency_ttl_seconds: int = 7 * 24 * 3600
     webhook_timeout_seconds: float = 10.0
 

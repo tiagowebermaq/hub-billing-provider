@@ -79,7 +79,18 @@ python tools/build_po.py --bump minor -m "Descrição da alteração" --git    #
 ```
 `--git` faz commit, cria a tag `po-vX.Y.Z` e envia ao GitHub.
 
-## Estado atual (sprint 1)
+## Fluxo de ponta a ponta
+1. `POST /api/v1/bills/import` lê a fatura e publica `collect.result`.
+2. Worker **normalizer**: modelo canônico, idempotência no Redis, vínculo conta -> imóvel (`PUT /api/v1/accounts/{provedor}/{conta}`).
+3. Worker **grouper**: grava a conta no PostgreSQL. Sem vínculo, ela fica em `MANUAL_REVIEW` e sai o evento `bill.manual_review`;
+   ao vincular a conta depois, ela é liberada.
+4. `POST /api/v1/batches/close {"reference_month": "2026-10"}` fecha os lotes por imóvel/contrato e publica `batch.ready`.
+5. Worker **dispatcher**: envia ao sistema de aluguéis (contrato proposto em `docs/integracao-locacao.md`) e emite `batch.sent`
+   ou `batch.failed`. Falhas temporárias usam retry 30 s / 5 min / 1 h e DLQ.
+
+## Estado atual
 Pronto: fundação, Correlation ID, domínio, agrupamento, permissões, API de usuários/coleta, topologia de filas,
-idempotência e webhooks assinados, com testes. Pendente: meio de coleta real da CPFL/RGE, Aegea/Corsan e Vivo (épico E1),
-persistência em PostgreSQL (E2/E3) e envio ao sistema de aluguéis (E7, depende do contrato da API dele).
+idempotência, webhooks assinados, importação de fatura em PDF com validação FEBRABAN, persistência (vínculos, contas e
+lotes) e envio ao sistema de aluguéis com retry, todos com testes.
+Pendente: coleta automática por concessionária (épico E1: portal, API, e-mail ou EDI), contrato definitivo da API do sistema
+de aluguéis, cadastro de assinaturas de webhook e migrações de banco (hoje o schema é criado no boot).
