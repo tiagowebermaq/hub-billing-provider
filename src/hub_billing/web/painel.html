@@ -241,12 +241,19 @@ a.link:hover,button.link:hover{text-decoration:underline}
       <div class="card">
         <h2>Coletar agora</h2>
         <form class="row" id="f-coleta">
-          <label>Concessionária<select name="provider" class="providers" required></select></label>
-          <label>Distribuidora<input name="distributor" placeholder="ex.: rge"></label>
+          <label>Portal<select name="portal">
+            <option value="todos">Todos os conectados</option>
+            <option value="cpfl:rge">RGE (energia)</option>
+            <option value="aegea:corsan">Corsan (água)</option>
+          </select></label>
           <label>Competência<input name="reference_month" type="month"></label>
           <button class="pri" type="submit">Iniciar coleta</button>
         </form>
         <div class="msg" id="m-coleta"></div>
+      </div>
+      <div class="card scroll">
+        <h2>Últimas coletas</h2>
+        <table id="t-coletas"></table>
       </div>
       <div class="card">
         <h2>Conectar portais</h2>
@@ -346,7 +353,18 @@ async function loadLotes() {
   ], await api("/api/v1/batches"), "Nenhum lote fechado.");
 }
 
+const RESULTADO = {ok: ["ok", "Concluída"], login: ["bad", "Login necessário"], erro: ["bad", "Erro"]};
+async function loadColetas() {
+  table($("#t-coletas"), [
+    ["Quando", r => when(r.finished_at)],
+    ["Portal", r => esc(PORTAIS[r.provider] || r.provider)],
+    ["Resultado", r => { const [tom, txt] = RESULTADO[r.status] || ["", r.status]; return `<span class="chip ${tom}">${esc(txt)}</span>`; }],
+    ["Unidades", r => esc(r.accounts)], ["Faturas", r => esc(r.bills)], ["Detalhe", r => esc(r.message || "")],
+  ], await api("/api/v1/collections").catch(() => []), "Nenhuma coleta ainda.");
+}
+
 async function loadPortais() {
+  loadColetas();
   const now = Date.now();
   table($("#t-portais"), [
     ["Concessionária", r => esc(r.provider)], ["Distribuidora", r => esc(r.distributor || "—")],
@@ -561,8 +579,17 @@ $("[data-view=portais]").addEventListener("click", e => {
 });
 $("#f-coleta").addEventListener("submit", async e => {
   e.preventDefault();
-  try { await api("/api/v1/collections", {method: "POST", json: form(e.target)}); say("#m-coleta", "Coleta iniciada. As faturas aparecem na aba Faturas.", "ok"); }
-  catch (err) { say("#m-coleta", err.message, "bad"); }
+  const {portal, reference_month} = form(e.target);
+  const sessoes = await api("/api/v1/providers/sessions").catch(() => []);
+  const alvos = portal === "todos" ? sessoes.map(s => [s.provider, s.distributor]) : [portal.split(":")];
+  if (!alvos.length) return say("#m-coleta", "Nenhum portal conectado. Use os botões de Conectar abaixo.", "bad");
+  try {
+    for (const [provider, distributor] of alvos)
+      await api("/api/v1/collections", {method: "POST", json: {provider, distributor: distributor || null,
+                                                                reference_month: reference_month || null}});
+    say("#m-coleta", "Coleta iniciada. O resultado aparece em Últimas coletas, e as faturas na aba Faturas.", "ok");
+    for (let i = 0; i < 12; i++) { await pausa(5000); await loadColetas(); }
+  } catch (err) { say("#m-coleta", err.message, "bad"); }
 });
 
 function ICONE(d) { return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`; }

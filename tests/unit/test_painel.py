@@ -47,3 +47,9 @@ def test_login_no_novo_visual(client: TestClient) -> None:
 def test_painel_avisa_quando_o_hub_nao_responde(client: TestClient) -> None:
     html = client.get("/painel").text
     assert "O hub não respondeu" in html and "falhas > 5" in html  # sem "Failed to fetch" cru na tela
+
+
+def test_painel_mostra_ultimas_coletas_e_escolhe_o_portal(client: TestClient) -> None:
+    html = client.get("/painel").text
+    assert 'id="t-coletas"' in html and "/api/v1/collections" in html
+    assert 'value="cpfl:rge"' in html and 'value="aegea:corsan"' in html and 'value="todos"' in html

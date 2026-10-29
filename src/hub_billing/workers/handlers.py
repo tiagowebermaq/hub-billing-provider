@@ -25,7 +25,11 @@ async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
     p = env.payload
     provider, distributor = p["provider"], p.get("distributor")
     stored = repo.load_session(provider, distributor)
+    if stored is None and not distributor and (only := repo.only_session(provider)) is not None:
+        distributor = only or None  # coleta sem distribuidora: usa a única sessão salva do portal
+        stored = repo.load_session(provider, distributor)
     adapter = get_adapter(provider, distributor).use(http, **(options or {}))
+    accounts = []
     try:
         if stored is None:
             raise SessionExpired(f"nenhuma sessão salva para {provider}: faça o login assistido")
@@ -36,10 +40,25 @@ async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
             accounts = [a for a in accounts if a.account_number == p["account_number"]]
         raws = [raw for account in accounts for raw in await adapter.fetch_bills(session, account, p.get("reference_month"))]
     except SessionExpired as exc:
+        repo.record_run(env.message_id, provider, distributor, "login", message=str(exc))
         return [env.derive("collect.login_required", "collector",
                            {"provider": provider, "distributor": distributor, "reason": str(exc)})]
+    except Exception as exc:
+        repo.record_run(env.message_id, provider, distributor, "erro", len(accounts), message=_reason(exc))
+        raise
+    message = None if raws else (
+        "nenhuma unidade encontrada na sessão do portal" if not accounts else "nenhuma conta em aberto encontrada")
+    repo.record_run(env.message_id, provider, distributor, "ok", len(accounts), len(raws), message)
     return [env.derive("collect.result", "collector", {"raw": raw.model_dump(mode="json"), "distributor": distributor})
             for raw in raws]
+
+
+def _reason(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"o portal respondeu HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.HTTPError):
+        return f"falha de rede ao falar com o portal: {exc.__class__.__name__}"
+    return str(exc) or exc.__class__.__name__
 
 
 async def normalize(env: Envelope, guard: IdempotencyGuard, lookup: PropertyLookup) -> Envelope | None:
