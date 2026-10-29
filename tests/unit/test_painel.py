@@ -53,3 +53,9 @@ def test_painel_mostra_ultimas_coletas_e_escolhe_o_portal(client: TestClient) ->
     html = client.get("/painel").text
     assert 'id="t-coletas"' in html and "/api/v1/collections" in html
     assert 'value="cpfl:rge"' in html and 'value="aegea:corsan"' in html and 'value="todos"' in html
+
+
+def test_painel_oferece_pdf_pix_e_codigo_para_pagar(client: TestClient) -> None:
+    html = client.get("/painel").text
+    assert "data-pdf=" in html and "data-copiar=" in html and 'id="m-faturas"' in html
+    assert "URL.createObjectURL" in html and "Authorization: `Bearer ${token}`" in html

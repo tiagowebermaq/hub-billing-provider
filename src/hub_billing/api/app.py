@@ -385,6 +385,16 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
                          reference_month: str | None = None, status: BillStatus | None = None) -> list[Bill]:
         return db.list_bills(reference_month, status)
 
+    @app.get("/api/v1/documents/{provider}/{account_number}/{reference_month}")
+    async def get_document(provider: str, account_number: str, reference_month: str,
+                           _: Annotated[User, Depends(require(Permission.BILLS_READ))]) -> Response:
+        """PDF da conta baixado do portal na coleta."""
+        doc = db.load_document(f"{provider}:{account_number}:{reference_month}")
+        if doc is None:
+            raise HTTPException(404, "PDF desta conta ainda não foi baixado: rode a coleta de novo")
+        name = f"conta-{provider}-{account_number}-{reference_month}.pdf"
+        return Response(doc[0], media_type=doc[1], headers={"Content-Disposition": f'inline; filename="{name}"'})
+
     @app.post("/api/v1/batches/close", status_code=202)
     async def close_batches(body: CloseBatchesIn,
                             _: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))]) -> dict[str, object]:

@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     Engine,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -100,6 +101,14 @@ collection_runs = Table(
     Column("bills", Integer, nullable=False, default=0),
     Column("message", Text),
     Column("finished_at", DateTime(timezone=True), nullable=False),
+)
+
+bill_documents = Table(  # PDF da conta, baixado do portal na coleta
+    "bill_documents", metadata,
+    Column("business_key", String(160), primary_key=True),
+    Column("content", LargeBinary, nullable=False),
+    Column("content_type", String(64), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
 users = Table(
@@ -222,6 +231,36 @@ class Repository:
         except IntegrityError:
             return False
         return True
+
+    def complete_bill(self, bill: Bill) -> bool:
+        """Completa a conta já gravada com o que a coleta trouxe (titular, endereço, PIX, PDF), sem apagar nada."""
+        with self.engine.begin() as conn:
+            row = conn.execute(select(bills.c.id, bills.c.data).where(bills.c.business_key == bill.business_key)).first()
+            if row is None:
+                return False
+            stored = Bill.model_validate(row[1])
+            done = stored.model_copy(update={
+                "consumer": fill_gaps(stored.consumer, bill.consumer),
+                "property_info": fill_gaps(stored.property_info, bill.property_info),
+                **{f: getattr(bill, f) for f in ("pix_code", "digitable_line", "barcode", "document_url")
+                   if getattr(stored, f) is None and getattr(bill, f) is not None}})
+            if done == stored:
+                return False
+            conn.execute(update(bills).where(bills.c.id == row[0]).values(data=done.model_dump(mode="json")))
+        return True
+
+    def save_document(self, business_key: str, content: bytes, content_type: str = "application/pdf") -> None:
+        row = {"content": content, "content_type": content_type, "updated_at": _now()}
+        with self.engine.begin() as conn:
+            key = bill_documents.c.business_key == business_key
+            if conn.execute(update(bill_documents).where(key).values(**row)).rowcount == 0:
+                conn.execute(insert(bill_documents).values(business_key=business_key, **row))
+
+    def load_document(self, business_key: str) -> tuple[bytes, str] | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(bill_documents.c.content, bill_documents.c.content_type).where(
+                bill_documents.c.business_key == business_key)).first()
+        return (bytes(row[0]), row[1]) if row else None
 
     def list_bills(self, reference_month: str | None = None, status: BillStatus | None = None) -> list[Bill]:
         query = select(bills.c.data, bills.c.status).order_by(bills.c.created_at)

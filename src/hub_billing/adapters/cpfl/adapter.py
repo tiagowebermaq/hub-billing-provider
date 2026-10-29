@@ -85,6 +85,7 @@ class CpflAdapter(ProviderAdapter):
         if distributor is not None and distributor not in DISTRIBUTORS:
             raise ValueError(f"distribuidora CPFL desconhecida: {distributor}")
         super().__init__(distributor)
+        self._pdfs: dict[str, bytes] = {}  # PDFs baixados durante a coleta, por UC
 
     def _headers(self, session: ProviderSession, auth: bool = True) -> dict[str, str]:
         headers = {"Accept": "application/json", "Origin": session.data.get("origin") or "https://servicosonline.cpfl.com.br",
@@ -189,16 +190,22 @@ class CpflAdapter(ProviderAdapter):
             return []
         form, fragment = loaded
         pns = [form["parceiro_negocio"]]
+        names: dict[str, str | None] = {form["parceiro_negocio"]: form.get("titular")}
         if form.get("pns_url"):
             try:
                 resp = await self._site_request(session, "GET", f"{av.SITE}{form['pns_url']}", ajax=True)
-                pns = list(dict.fromkeys([*pns, *av.parse_pns(resp.json())]))
+                listed = av.parse_pns(resp.json())
+                names.update({k: v for k, v in listed.items() if v})
+                pns = list(dict.fromkeys([*pns, *listed]))
             except (httpx.HTTPError, ValueError):
                 pass
         choices = [{**c, "pn": pns[0]} for c in av.parse_ucs(fragment)]
         for pn in pns[1:]:
             other = await self._site_form(session, pn)
             choices += [{**c, "pn": pn} for c in av.parse_ucs(other[1])] if other else []
+        for c in choices:
+            if names.get(c["pn"]):
+                c["titular"] = names[c["pn"]] or ""
         if not choices:
             av.save_diagnostic("selecao-ucs.html", fragment or "(lista de UCs vazia)")
         return choices
@@ -218,6 +225,11 @@ class CpflAdapter(ProviderAdapter):
                 conta = await self._site_conta_atual(session)
                 if conta:
                     extra = {"conta_atual": conta, **({"escolha": escolha} if escolha else {})}
+                    if conta["instalacao"] not in self._pdfs:  # baixa já, com a UC aberta, sem trocar de novo depois
+                        try:
+                            self._pdfs[conta["instalacao"]] = await self._site_pdf(session)
+                        except (httpx.HTTPError, ValueError) as exc:
+                            log.warning("PDF da UC %s não baixado: %s", conta["instalacao"], exc)
                     accounts.setdefault(conta["instalacao"], ProviderAccount(account_number=conta["instalacao"],
                                                                              extra=extra))
             return list(accounts.values())
@@ -228,6 +240,16 @@ class CpflAdapter(ProviderAdapter):
                 number = str(inst["Instalacao"])
                 found.setdefault(number, ProviderAccount(account_number=number, extra=dict(inst)))
         return list(found.values())
+
+    async def _site_pdf(self, session: ProviderSession) -> bytes:
+        """PDF da conta completa da UC aberta. Se o site devolver uma página, segue o PDF que ela embute."""
+        resp = await self._site_get(session, av.CONTA_COMPLETA)
+        if "pdf" not in resp.headers.get("content-type", "") and (link := av.pdf_link(resp.text)):
+            resp = await self._site_get(session, str(resp.url.join(link)))
+        if "pdf" not in resp.headers.get("content-type", "") and not resp.content.startswith(b"%PDF"):
+            av.save_diagnostic("conta-completa.html", resp.text)
+            raise ValueError("a CPFL não devolveu o PDF da conta completa")
+        return resp.content
 
     async def _site_conta_atual(self, session: ProviderSession) -> dict[str, Any] | None:
         resp = await self._site_get(session, av.PAGINA_INICIAL)
@@ -246,7 +268,10 @@ class CpflAdapter(ProviderAdapter):
             return [RawBill(provider=self.code, account_number=account.account_number, reference_month=c["referencia"],
                             due_date=parse_date(c["vencimento"]), amount=parse_money(c["valor"]),
                             payload={"source": "agencia-virtual", "digitable_line": c["codigo_barras"],
-                                     "status": c["situacao"], "numeroContaEnergia": c["numero_conta"],
+                                     "pix_code": c.get("pix"), "status": c["situacao"],
+                                     "numeroContaEnergia": c["numero_conta"],
+                                     "property": {"address": c.get("endereco"), "category": c.get("classe")},
+                                     "consumer": {"name": (account.extra.get("escolha") or {}).get("titular")},
                                      **({"escolha": account.extra["escolha"]} if account.extra.get("escolha") else {})})]
         body = {"RetornarDetalhes": True, "GerarProtocolo": False,
                 **{k: account.extra.get(k) for k in _INSTALLATION_FIELDS}}
@@ -273,12 +298,11 @@ class CpflAdapter(ProviderAdapter):
     async def download_document(self, session: ProviderSession, bill: RawBill) -> bytes:
         p = bill.payload
         if p.get("source") == "agencia-virtual":
+            if bill.account_number in self._pdfs:
+                return self._pdfs[bill.account_number]
             if p.get("escolha"):  # a conta completa é sempre da UC aberta na sessão
                 await self._site_choose(session, p["escolha"])
-            resp = await self._site_get(session, av.CONTA_COMPLETA)
-            if "pdf" not in resp.headers.get("content-type", ""):
-                raise ValueError("a CPFL não devolveu o PDF da conta completa")
-            return resp.content
+            return await self._site_pdf(session)
         inst = p.get("installation", {})
         resp = await self._client().get(f"{self._api(session)}/historico-contas/conta-completa-pdf",
                                         headers=self._headers(session, auth=False),
