@@ -9,6 +9,9 @@ from hub_billing.adapters.cpfl import agencia_virtual as av
 from hub_billing.adapters.registry import get_adapter
 
 PAGINA = """<html><head><link href="/css/conta-atual.css"></head><body>
+<div class="user-logged-in"><div class="user-logged-in-name"><span title="fulano">fulano</span></div>
+<div class="user-logged-in-role"><span title="Residencial / Baixa tensão">Residencial / Baixa tensão</span></div>
+<div class="user-logged-in-info"><span title="R DAS FLORES, 10">R DAS FLORES, 10</span></div></div>
 <div class="coh-column conta-atual"><div class="card"><div class="card-body atrasada">
 <p class="sub-title">Débito atual - Fatura </p><div class="valortotal-wrapper"> <p class="title">R$ 1.234,56</p> </div>
 <p class="sub-title">Referente à Setembro de 2026 </p>
@@ -16,7 +19,17 @@ PAGINA = """<html><head><link href="/css/conta-atual.css"></head><body>
 <a class="entenda-conta" href="/agencia-virtual/conta-completa"> Ver conta completa </a></div></div>
 <div id="codigo-de-barra" class="modal" data-instalacao="4000123456" data-numeroconta="900000000001">
 <div class="codigo"> 836900000012 345600863550 933682441011 100018827525 </div></div></div>
+<div id="codigo-pix" class="modal codigo-pix" data-instalacao="4000123456"><div class="btn fill copiar-codigo">
+Copiar código PIX <div class="hidden codigo">00020101br.gov.bcb.pix0136abc5204000053039865802BR6304F87F</div></div></div>
 <div class="modal-footer"></div></body></html>"""
+
+
+@pytest.fixture(autouse=True)
+def diagnostico_temporario(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Nunca grava em logs/ de verdade: no PC ali ficam as páginas reais usadas para ajustar a leitura."""
+    monkeypatch.setattr(av, "DIAG_DIR", tmp_path)
+
+
 SESSAO = {"site": "agencia-virtual", "cookies": {"SSESSx": "abc"}, "user_agent": "Mozilla/5.0"}
 
 
@@ -24,7 +37,8 @@ def test_le_conta_atual_da_pagina_inicial() -> None:
     assert av.parse_conta_atual(PAGINA) == {
         "instalacao": "4000123456", "numero_conta": "900000000001", "valor": "1.234,56", "referencia": "2026-09",
         "vencimento": "20/10/2026", "situacao": "atrasada",
-        "codigo_barras": "836900000012345600863550933682441011100018827525"}
+        "codigo_barras": "836900000012345600863550933682441011100018827525", "endereco": "R DAS FLORES, 10",
+        "classe": "Residencial / Baixa tensão", "pix": "00020101br.gov.bcb.pix0136abc5204000053039865802BR6304F87F"}
     sem_situacao = PAGINA.replace(" <span>atrasada</span>", "")
     assert av.parse_conta_atual(sem_situacao)["situacao"] is None  # type: ignore[index]
     assert av.parse_conta_atual("<html>login</html>") is None
@@ -77,7 +91,8 @@ async def test_site_novo_sessao_expirada_ou_sem_pdf() -> None:
 
 SELECAO = """<form action="/agencia/area-cliente/selecionar-perfil-instalacao" method="post">
 <input class="custom-select select-instalacao" data-url="/api/gestao-acesso/pns?perfilId=p1"
- data-custom-select-default="111" type="text" name="parceiro_negocio" value="111">
+ data-custom-select-default="111" data-custom-select-default-text="00000000000 - MARIA TESTE"
+ type="text" name="parceiro_negocio" value="111">
 <input class="padrao-rf003" type="text" name="filtro_num_instalacao" value="">
 <div id="edit-items"></div>
 <input type="submit" name="op" value="Acessar">
@@ -97,7 +112,7 @@ def _lista(*ucs: str) -> list[dict[str, str]]:
 def test_le_formulario_e_lista_de_ucs() -> None:
     form = av.parse_selecao(SELECAO)
     assert form == {"form_build_id": "form-abc", "form_id": "cpflenergia_service_selecionar_perfil_instalacao_form",
-                    "parceiro_negocio": "111", "pns_url": "/api/gestao-acesso/pns?perfilId=p1",
+                    "parceiro_negocio": "111", "titular": "MARIA TESTE", "pns_url": "/api/gestao-acesso/pns?perfilId=p1",
                     "ajax_page_state": {"ajax_page_state[theme]": "cpfl_theme", "ajax_page_state[libraries]": "x,y"}}
     assert av.parse_selecao("<html></html>") is None
     fragment, build_id = av.parse_ajax(_lista("4000000001", "4000000002", "4000000001"))
@@ -105,16 +120,19 @@ def test_le_formulario_e_lista_de_ucs() -> None:
     assert av.parse_ucs(fragment) == [{"campo": "instalacao", "valor": "4000000001"},
                                       {"campo": "instalacao", "valor": "4000000002"}]
     assert av.parse_ajax({"erro": 1}) == ("", None)
-    assert av.parse_pns({"results": [{"id": "111", "text": "x"}, {"text": "sem id"}]}) == ["111"]
+    assert av.parse_pns({"results": [{"id": "111", "text": "1 - ANA"}, {"id": "2"}, {"text": "sem id"}]}) == {
+        "111": "ANA", "2": None}
+    embutido = '<a href="#">x</a><iframe src="/arquivos/conta.PDF?x=1&amp;y=2"></iframe>'
+    assert av.pdf_link(embutido) == "/arquivos/conta.PDF?x=1&y=2"
+    assert av.pdf_link('<a href="javascript:pdf()">x</a>') is None
 
 
 @respx.mock
-async def test_coleta_todas_as_ucs_do_login(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(av, "DIAG_DIR", tmp_path)
+async def test_coleta_todas_as_ucs_do_login() -> None:
     aberta = {"uc": "4000000001"}
     respx.get(av.SELECAO).mock(return_value=httpx.Response(200, text=SELECAO))
     respx.get(f"{av.SITE}/api/gestao-acesso/pns").mock(return_value=httpx.Response(
-        200, json={"results": [{"id": "111"}, {"id": "222"}]}))
+        200, json={"results": [{"id": "111"}, {"id": "222", "text": "22200000000 - JOSE TESTE"}]}))
 
     def ajax(request: httpx.Request) -> httpx.Response:
         pn = dict(httpx.QueryParams(request.content.decode()))["parceiro_negocio"]
@@ -143,24 +161,38 @@ async def test_coleta_todas_as_ucs_do_login(tmp_path, monkeypatch) -> None:  # t
         session = await adapter.resume(dict(SESSAO, cookies={"SSESSx": "abc", "Velho": "1"}))
         contas = await adapter.list_accounts(session)
         assert [c.account_number for c in contas] == ["4000000001", "4000000002", "4000000003"]
-        assert contas[2].extra["escolha"] == {"campo": "instalacao", "valor": "4000000003", "pn": "222"}
+        assert contas[2].extra["escolha"] == {"campo": "instalacao", "valor": "4000000003", "pn": "222",
+                                              "titular": "JOSE TESTE"}
         assert session.data["cookies"]["SSESSx"] == "novo"  # cookie renovado volta para a sessão salva
         [bill] = await adapter.fetch_bills(session, contas[0])
-        assert await adapter.download_document(session, bill) == b"4000000001"
+        assert bill.payload["consumer"] == {"name": "MARIA TESTE"} and bill.payload["pix_code"].startswith("0002")
+        assert bill.payload["property"] == {"address": "R DAS FLORES, 10", "category": "Residencial / Baixa tensão"}
+        assert await adapter.download_document(session, bill) == b"4000000001"  # baixado com a UC 1 aberta
+        canonical = adapter.to_canonical(bill)
+        assert canonical.consumer.name == "MARIA TESTE" and canonical.property_info.address  # type: ignore[union-attr]
 
 
 @respx.mock
-async def test_lista_de_ucs_ilegivel_coleta_a_uc_aberta(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(av, "DIAG_DIR", tmp_path)
+async def test_lista_de_ucs_ilegivel_coleta_a_uc_aberta(tmp_path) -> None:  # type: ignore[no-untyped-def]
     sem_titulares = SELECAO.replace(' data-url="/api/gestao-acesso/pns?perfilId=p1"', "")
     respx.get(av.SELECAO).mock(return_value=httpx.Response(200, text=sem_titulares))
     respx.post(av.SELECAO_AJAX).mock(return_value=httpx.Response(200, text="não é json"))
     respx.get(av.PAGINA_INICIAL).mock(return_value=httpx.Response(200, text=PAGINA))
+    respx.get(av.CONTA_COMPLETA).mock(return_value=httpx.Response(200, text="<html>sem pdf</html>"))
     async with httpx.AsyncClient() as http:
         adapter = get_adapter("cpfl", "rge").use(http)
         [conta] = await adapter.list_accounts(await adapter.resume(SESSAO))
     assert conta.account_number == "4000123456" and "escolha" not in conta.extra
-    assert (tmp_path / "selecao-ucs.html").exists()
+    assert (tmp_path / "selecao-ucs.html").exists() and (tmp_path / "conta-completa.html").exists()
+
+
+@respx.mock
+async def test_conta_completa_em_pagina_segue_o_pdf_embutido() -> None:
+    respx.get(av.CONTA_COMPLETA).mock(return_value=httpx.Response(200, text='<embed src="/arquivos/x.pdf">'))
+    respx.get(f"{av.SITE}/arquivos/x.pdf").mock(return_value=httpx.Response(200, content=b"%PDF-embutido"))
+    async with httpx.AsyncClient() as http:
+        adapter = get_adapter("cpfl", "rge").use(http)
+        assert await adapter._site_pdf(await adapter.resume(SESSAO)) == b"%PDF-embutido"
 
 
 @respx.mock

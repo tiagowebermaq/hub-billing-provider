@@ -150,3 +150,15 @@ def test_admin_redefine_senha_de_usuario(client: TestClient, admin_headers: dict
     assert client.patch("/api/v1/users/nao-existe/status", json={"active": True}, headers=admin_headers).status_code == 404
     consulta = login(client, "leo@example.com", temp)
     assert client.patch(f"/api/v1/users/{leo['id']}/status", json={"active": True}, headers=consulta).status_code == 403
+
+
+def test_baixa_pdf_da_conta(client: TestClient, admin_headers: dict[str, str]) -> None:
+    url = "/api/v1/documents/cpfl/4000000001/2026-10"
+    assert client.get(url).status_code == 401
+    resp = client.get(url, headers=admin_headers)
+    assert resp.status_code == 404 and "coleta" in resp.json()["detail"]
+    client.app.state.repo.save_document("cpfl:4000000001:2026-10", b"%PDF-1")  # type: ignore[attr-defined]
+    client.app.state.repo.save_document("cpfl:4000000001:2026-10", b"%PDF-2")  # type: ignore[attr-defined]
+    resp = client.get(url, headers=admin_headers)
+    assert resp.content == b"%PDF-2" and resp.headers["content-type"] == "application/pdf"
+    assert 'filename="conta-cpfl-4000000001-2026-10.pdf"' in resp.headers["content-disposition"]

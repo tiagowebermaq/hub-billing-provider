@@ -160,6 +160,7 @@ a.link:hover,button.link:hover{text-decoration:underline}
           <label>Status<select name="status"><option value="">Todos</option></select></label>
           <button class="sec" type="submit">Filtrar</button>
         </form>
+        <p class="msg" id="m-faturas"></p>
       </div>
       <div class="card scroll"><table id="t-faturas"></table></div>
     </section>
@@ -329,6 +330,11 @@ async function loadFaturas() {
     ["Titular", b => esc(b.consumer?.name)], ["Endereço", b => cut(b.property_info?.address), "cut"],
     ["Competência", b => esc(b.reference_month)], ["Vencimento", b => date(b.due_date)],
     ["Valor", b => brl(b.amount), "num"], ["Status", b => chip(b.status)],
+    ["Pagar", b => [
+      b.document_url ? `<button class="sec" data-pdf="${esc(b.document_url)}">PDF</button>` : "",
+      b.pix_code ? `<button class="sec" data-copiar="${esc(b.pix_code)}" data-o-que="PIX copia e cola">PIX</button>` : "",
+      b.digitable_line ? `<button class="sec" data-copiar="${esc(b.digitable_line)}" data-o-que="Código de barras">Código</button>` : "",
+    ].join(" ") || "—"],
   ], bills, "Nenhuma fatura ainda. Importe um PDF ou inicie uma coleta.");
 }
 
@@ -567,6 +573,22 @@ $("#f-fechar").addEventListener("submit", async e => {
     const r = await api("/api/v1/batches/close", {method: "POST", json: form(e.target)});
     say("#m-fechar", `${r.batches.length} lote(s) com ${r.bills} fatura(s) enviados. ${r.pending_manual_review} sem imóvel.`, "ok"); loadLotes();
   } catch (err) { say("#m-fechar", err.message, "bad"); }
+});
+$("#t-faturas").addEventListener("click", async e => {
+  const {pdf, copiar, oQue} = e.target.dataset;
+  if (copiar) {
+    try { await navigator.clipboard.writeText(copiar); say("#m-faturas", `${oQue} copiado. Cole no app do banco.`, "ok"); }
+    catch (err) { say("#m-faturas", `Não deu para copiar: ${copiar}`, "bad"); }
+    return;
+  }
+  if (!pdf) return;
+  const aba = window.open("", "_blank");  // abre já no clique, senão o navegador bloqueia
+  try {
+    const res = await fetch(pdf, {headers: {Authorization: `Bearer ${token}`}});
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail || `Erro ${res.status}`);
+    const url = URL.createObjectURL(await res.blob());
+    if (aba) aba.location = url; else window.location = url;
+  } catch (err) { if (aba) aba.close(); say("#m-faturas", err.message === "Failed to fetch" ? SEM_HUB : err.message, "bad"); }
 });
 $("#t-lotes").addEventListener("click", async e => {
   const id = e.target.dataset.resend; if (!id) return;

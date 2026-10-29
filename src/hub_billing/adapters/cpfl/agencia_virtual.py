@@ -45,7 +45,19 @@ def parse_conta_atual(page: str) -> dict[str, Any] | None:
         "vencimento": venc.group(1),
         "situacao": (venc.group(2) or "").strip() or None,
         "codigo_barras": re.sub(r"\D", "", codigo.group(1)) if codigo else None,
+        **perfil_uc(page),
     }
+
+
+def perfil_uc(page: str) -> dict[str, str | None]:
+    """Endereço e classe da UC aberta (cabeçalho do usuário) e o PIX copia e cola da conta atual."""
+    def span(cls: str) -> str | None:
+        m = re.search(rf'class="{cls}"><span title="([^"]*)"', page)
+        return html.unescape(m.group(1)).strip() or None if m else None
+
+    pix = re.search(r'class="[^"]*\bcodigo-pix\b.*?class="hidden codigo">\s*([^<]+?)\s*<', page, re.S)
+    return {"endereco": span("user-logged-in-info"), "classe": span("user-logged-in-role"),
+            "pix": html.unescape(pix.group(1)) if pix and "br.gov.bcb.pix" in pix.group(1) else None}
 
 
 def is_login_page(url: str, page: str) -> bool:
@@ -84,13 +96,20 @@ def parse_selecao(page: str) -> dict[str, Any] | None:
             pass
     return {"form_build_id": hidden["form_build_id"], "form_id": hidden["form_id"],
             "parceiro_negocio": pn.get("value") or pn.get("data-custom-select-default") or "",
+            "titular": titular_nome(pn.get("data-custom-select-default-text")),
             "pns_url": pn.get("data-url"), "ajax_page_state": state}
 
 
-def parse_pns(data: Any) -> list[str]:
-    """Titulares (CPF/CNPJ) do login, na resposta do /api/gestao-acesso/pns (formato do select2)."""
+def parse_pns(data: Any) -> dict[str, str | None]:
+    """Titulares do login (código -> nome), na resposta do /api/gestao-acesso/pns (formato do select2)."""
     rows = data.get("results") if isinstance(data, dict) else data
-    return [str(r["id"]) for r in rows or [] if isinstance(r, dict) and r.get("id")]
+    return {str(r["id"]): titular_nome(r.get("text")) for r in rows or [] if isinstance(r, dict) and r.get("id")}
+
+
+def titular_nome(text: Any) -> str | None:
+    """"00000000000 - NOME DO TITULAR" -> "NOME DO TITULAR"."""
+    name = str(text or "").rpartition(" - ")[2].strip()
+    return name or None
 
 
 def parse_ajax(commands: Any) -> tuple[str, str | None]:
@@ -126,3 +145,12 @@ def save_diagnostic(name: str, content: str) -> None:
         (DIAG_DIR / name).write_text(content, encoding="utf-8")
     except OSError:
         pass
+
+
+def pdf_link(page: str) -> str | None:
+    """Endereço do PDF quando a conta completa vem numa página (iframe, embed ou link) em vez do arquivo."""
+    for m in re.finditer(r'<(?:iframe|embed|object|a)\b[^>]*?(?:src|data|href)="([^"]+)"', page, re.I):
+        url = html.unescape(m.group(1))
+        if "pdf" in url.lower() and not url.startswith(("javascript:", "#")):
+            return url
+    return None

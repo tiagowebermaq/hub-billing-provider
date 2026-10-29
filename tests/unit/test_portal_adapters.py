@@ -267,3 +267,29 @@ def test_motivo_de_falha_legivel() -> None:
     from hub_billing.workers.handlers import _reason
     assert "ConnectError" in _reason(httpx.ConnectError("x"))
     assert _reason(ValueError("valor ruim")) == "valor ruim" and _reason(RuntimeError()) == "RuntimeError"
+
+
+@respx.mock
+async def test_coletor_guarda_pdf_e_completa_conta_ja_gravada(repo: Repository) -> None:
+    respx.get(f"{AEGEA_API}/cliente/matriculas").mock(return_value=httpx.Response(200, json=MATRICULAS))
+    respx.get(f"{AEGEA_API}/fatura/debito-totais/matricula").mock(return_value=httpx.Response(200, json=DEBITOS))
+    pdf = respx.get(f"{AEGEA_API}/fatura/segunda-via/download").mock(
+        return_value=httpx.Response(200, json={"content": {"bytes": base64.b64encode(b"%PDF-aegea").decode()}}))
+    adapter = get_adapter("aegea", "corsan")
+    raw = RawBill(provider="aegea", account_number="778899", reference_month="2026-10", due_date=date(2026, 11, 10),
+                  amount=Decimal("80.10"))
+    repo.save_bill(adapter.to_canonical(raw))  # já veio numa coleta antiga, sem PIX nem PDF
+    repo.save_session("aegea", "corsan", aegea_session(), None)
+    env = Envelope(type="collect.request", producer="api", correlation_id="cid-d",
+                   payload={"provider": "aegea", "distributor": "corsan", "reference_month": "2026-10"})
+    async with httpx.AsyncClient() as http:
+        [out] = await collect(env, repo, http, {"apim_key": "k"})
+        assert out.payload["raw"]["payload"]["document_url"] == "/api/v1/documents/aegea/778899/2026-10"
+        assert repo.load_document("aegea:778899:2026-10") == (b"%PDF-aegea", "application/pdf")
+        [bill] = repo.list_bills()
+        assert bill.pix_code == "pix" and bill.document_url == "/api/v1/documents/aegea/778899/2026-10"
+        assert not repo.complete_bill(adapter.to_canonical(raw))  # nada novo: não regrava
+        pdf.mock(return_value=httpx.Response(500))
+        [out] = await collect(env, repo, http, {"apim_key": "k"})  # PDF fora do ar não derruba a coleta
+        assert "document_url" not in out.payload["raw"]["payload"]
+    assert repo.load_document("aegea:1:2026-10") is None

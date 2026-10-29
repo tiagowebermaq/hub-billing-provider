@@ -1,9 +1,10 @@
 """Lógica dos workers como funções puras sobre envelopes, testáveis sem RabbitMQ."""
+import logging
 from collections.abc import Callable
 
 import httpx
 
-from hub_billing.adapters.base import RawBill, SessionExpired
+from hub_billing.adapters.base import ProviderAdapter, ProviderSession, RawBill, SessionExpired
 from hub_billing.adapters.registry import get_adapter
 from hub_billing.domain.grouping import group_bills
 from hub_billing.domain.models import BatchStatus, Bill
@@ -12,6 +13,7 @@ from hub_billing.infra.repository import AccountLink, Repository
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.rental.client import RentalClient, RentalRejected
 
+log = logging.getLogger(__name__)
 PropertyLookup = Callable[[str, str], AccountLink | None]
 
 
@@ -39,6 +41,9 @@ async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
         if p.get("account_number"):
             accounts = [a for a in accounts if a.account_number == p["account_number"]]
         raws = [raw for account in accounts for raw in await adapter.fetch_bills(session, account, p.get("reference_month"))]
+        for raw in raws:
+            await _keep_document(adapter, session, raw, repo)
+            repo.complete_bill(adapter.to_canonical(raw))  # contas que já estavam gravadas ganham o que faltava
         repo.save_session(provider, distributor, session.data, stored[1])  # cookies renovados pelo portal na coleta
     except SessionExpired as exc:
         repo.record_run(env.message_id, provider, distributor, "login", message=str(exc))
@@ -52,6 +57,25 @@ async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
     repo.record_run(env.message_id, provider, distributor, "ok", len(accounts), len(raws), message)
     return [env.derive("collect.result", "collector", {"raw": raw.model_dump(mode="json"), "distributor": distributor})
             for raw in raws]
+
+
+def document_url(raw: RawBill) -> str:
+    return f"/api/v1/documents/{raw.provider}/{raw.account_number}/{raw.reference_month}"
+
+
+async def _keep_document(adapter: ProviderAdapter, session: ProviderSession, raw: RawBill, repo: Repository) -> None:
+    """Baixa o PDF da conta e guarda no hub, para o painel oferecer o arquivo. Falha aqui não derruba a coleta."""
+    try:
+        content = await adapter.download_document(session, raw)
+    except SessionExpired:
+        raise
+    except Exception as exc:  # noqa: BLE001 - portal fora do ar, PDF indisponível, adapter sem download
+        log.warning("PDF de %s %s %s não baixado: %s", raw.provider, raw.account_number, raw.reference_month,
+                    _reason(exc))
+        return
+    if content:
+        repo.save_document(f"{raw.provider}:{raw.account_number}:{raw.reference_month}", content)
+        raw.payload["document_url"] = document_url(raw)
 
 
 def _reason(exc: Exception) -> str:
