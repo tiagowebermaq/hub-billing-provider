@@ -124,17 +124,23 @@ async def test_coleta_todas_as_ucs_do_login(tmp_path, monkeypatch) -> None:  # t
         form = dict(httpx.QueryParams(request.content.decode()))
         assert form["op"] == "Acessar" and form["form_build_id"] == "form-def"
         aberta["uc"] = form["instalacao"]
-        return httpx.Response(200, text="ok", headers={"set-cookie": "SSESSx=novo; path=/"})
+        return httpx.Response(302, headers=[("location", "/agencia-virtual/pagina-inicial"),
+                                            ("set-cookie", "SSESSx=novo; path=/"),
+                                            ("set-cookie", "Velho=; Max-Age=0; path=/")])
 
     respx.post(av.SELECAO_AJAX).mock(side_effect=ajax)
     respx.post(av.SELECAO).mock(side_effect=acessar)
-    respx.get(av.PAGINA_INICIAL).mock(side_effect=lambda r: httpx.Response(
-        200, text=PAGINA.replace("4000123456", aberta["uc"])))
+    def inicial(request: httpx.Request) -> httpx.Response:
+        if aberta["uc"] != "4000000001":  # depois da troca, o site só aceita o cookie renovado
+            assert request.headers["Cookie"] == "SSESSx=novo"
+        return httpx.Response(200, text=PAGINA.replace("4000123456", aberta["uc"]))
+
+    respx.get(av.PAGINA_INICIAL).mock(side_effect=inicial)
     respx.get(av.CONTA_COMPLETA).mock(side_effect=lambda r: httpx.Response(
         200, content=aberta["uc"].encode(), headers={"content-type": "application/pdf"}))
     async with httpx.AsyncClient() as http:
         adapter = get_adapter("cpfl", "rge").use(http)
-        session = await adapter.resume(dict(SESSAO, cookies={"SSESSx": "abc"}))
+        session = await adapter.resume(dict(SESSAO, cookies={"SSESSx": "abc", "Velho": "1"}))
         contas = await adapter.list_accounts(session)
         assert [c.account_number for c in contas] == ["4000000001", "4000000002", "4000000003"]
         assert contas[2].extra["escolha"] == {"campo": "instalacao", "valor": "4000000003", "pn": "222"}
@@ -155,3 +161,28 @@ async def test_lista_de_ucs_ilegivel_coleta_a_uc_aberta(tmp_path, monkeypatch) -
         [conta] = await adapter.list_accounts(await adapter.resume(SESSAO))
     assert conta.account_number == "4000123456" and "escolha" not in conta.extra
     assert (tmp_path / "selecao-ucs.html").exists()
+
+
+@respx.mock
+async def test_troca_de_uc_que_cai_no_login_pede_novo_login() -> None:
+    respx.get(av.PAGINA_INICIAL).mock(return_value=httpx.Response(302, headers={"location": "/b2c-auth/login"}))
+    async with httpx.AsyncClient() as http:
+        adapter = get_adapter("cpfl", "rge").use(http)
+        session = await adapter.resume(SESSAO)
+        with pytest.raises(SessionExpired, match="login de novo"):
+            await adapter._site_get(session, av.PAGINA_INICIAL)
+        respx.get(av.SELECAO).mock(return_value=httpx.Response(302, headers={"location": av.SELECAO}))
+        with pytest.raises(ValueError, match="redirecionou demais"):
+            await adapter._site_get(session, av.SELECAO)
+
+
+def test_cookies_apagados_e_vencidos_saem_da_sessao() -> None:
+    from hub_billing.adapters.cpfl.adapter import _update_cookies
+
+    cookies = {"a": "1", "b": "2", "c": "3", "d": "4"}
+    resp = httpx.Response(200, request=httpx.Request("GET", av.SITE), headers=[
+        ("set-cookie", "a=; path=/"), ("set-cookie", "b=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT"),
+        ("set-cookie", "c=novo; Expires=Fri, 01 Jan 2100 00:00:00 GMT; HttpOnly"), ("set-cookie", "d=deleted"),
+        ("set-cookie", "e=5; Expires=data ruim"), ("set-cookie", "=semnome")])
+    _update_cookies(cookies, resp)
+    assert cookies == {"c": "novo", "e": "5"}
