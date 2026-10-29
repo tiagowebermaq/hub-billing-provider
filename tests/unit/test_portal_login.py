@@ -80,3 +80,9 @@ def test_api_conecta_portal_pelo_painel(settings: Settings) -> None:
 
     assert client.post("/api/v1/providers/vivo/connect", json={}, headers=admin).status_code == 422
     assert client.get("/api/v1/providers/connect/xyz", headers=admin).status_code == 404
+
+
+def test_janela_do_portal_tem_faixa_do_hub() -> None:
+    from hub_billing.collection.portal_login import FAIXA_JS
+
+    assert "Janela do Hub Billing" in FAIXA_JS and "hub-faixa" in FAIXA_JS

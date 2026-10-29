@@ -82,8 +82,14 @@ def git_output(*args: str) -> str:
 
 
 def last_po_tag() -> str | None:
+    """Ponto da última versão do PO: o commit "docs(po): PO ..." mais recente na main, ou a última tag po-v*.
+
+    O commit vale mais que a tag porque tags que não chegaram ao GitHub faziam a contagem de PRs recomeçar.
+    """
     try:
-        return git_output("describe", "--tags", "--match", "po-v*", "--abbrev=0").strip() or None
+        commit = git_output("log", "--first-parent", "-n1", "--format=%H",
+                            "--grep=^docs(po): PO Hub Billing Provider v").strip()
+        return commit or git_output("describe", "--tags", "--match", "po-v*", "--abbrev=0").strip() or None
     except subprocess.CalledProcessError:
         return None
 
@@ -143,8 +149,9 @@ def git_publish(version: str, out: Path) -> None:
         subprocess.run(["git", *args], cwd=ROOT, check=True)
     run("add", str(VERSION_FILE), str(CHANGELOG), str(out))
     run("commit", "-m", f"docs(po): PO Hub Billing Provider v{version}")
-    run("tag", f"po-v{version}")
-    run("push", "--follow-tags")
+    # Tag anotada e enviada explicitamente: sem ela no GitHub, a contagem de 10 PRs recomeçaria da tag anterior.
+    run("tag", "-a", f"po-v{version}", "-m", f"PO v{version}")
+    run("push", "origin", "HEAD", f"po-v{version}")
 
 
 def main() -> None:

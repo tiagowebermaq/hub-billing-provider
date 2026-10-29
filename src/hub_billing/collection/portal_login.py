@@ -21,6 +21,22 @@ PORTALS = {
 }
 CPFL_COOKIE_DOMAIN = "cpfl.com.br"
 LOGIN_TIMEOUT_S = 600
+# Faixa no topo da janela do portal, para não confundir com o Chrome do dia a dia.
+FAIXA_JS = """
+(() => {
+  const pintar = () => {
+    if (!document.body || document.getElementById("hub-faixa")) return;
+    const d = document.createElement("div");
+    d.id = "hub-faixa";
+    d.textContent = "Janela do Hub Billing: entre no portal normalmente. Quando o login terminar, esta janela fecha sozinha.";
+    d.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#4f8579;color:#fff;" +
+      "font:600 14px system-ui,sans-serif;padding:8px 14px;text-align:center;pointer-events:none";
+    document.body.appendChild(d);
+  };
+  document.addEventListener("DOMContentLoaded", pintar);
+  setInterval(pintar, 1500);
+})();
+"""
 
 
 class LoginTimeout(RuntimeError):
@@ -74,6 +90,7 @@ def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]: 
         browser = pw.chromium.launch(headless=False)
         try:
             context = browser.new_context(locale="pt-BR")
+            context.add_init_script(FAIXA_JS)
             context.new_page().goto(PORTALS[provider])
             deadline = time.monotonic() + timeout_s
             while time.monotonic() < deadline:

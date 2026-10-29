@@ -31,6 +31,11 @@ O jeito mais simples, na pasta do projeto:
 | Parar a aplicação | `parar.bat` | `./parar.sh` (ou Ctrl+C) |
 | Esqueci a senha do painel | `resetar-senha.bat` | `.venv/bin/python tools/reset_admin.py` |
 
+O `aplicacao.bat` abre o painel numa janela própria do navegador do hub (o Chromium instalado pelo `iniciar.bat`),
+separada do Chrome do dia a dia. Os logins da RGE e da Corsan são feitos pelo botão **Conectar** da aba Portais,
+que abre o portal numa janela com a faixa verde "Janela do Hub Billing"; um portal aberto no Chrome comum não
+conecta o hub.
+
 `iniciar` cria o ambiente Python, instala as dependências, gera o `.env` com segredos novos, sobe RabbitMQ, Redis e
 PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API e os
 5 workers e abre o painel de administração em http://localhost:8010/painel (faturas, importação de PDF, contas e
