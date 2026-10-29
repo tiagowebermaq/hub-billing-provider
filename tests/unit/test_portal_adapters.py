@@ -158,7 +158,7 @@ async def test_aegea_coleta_e_pdf() -> None:
 @respx.mock
 async def test_aegea_renova_e_expira() -> None:
     route = respx.post(B2C_TOKEN).mock(side_effect=[httpx.Response(200, json={"access_token": "at-2", "expires_in": 3600}),
-                                                    httpx.Response(400)])
+                                                    httpx.Response(400), httpx.Response(400)])
     async with httpx.AsyncClient() as http:
         adapter = get_adapter("aegea").use(http)
         session = await adapter.resume(aegea_session(minutes=-1))
@@ -168,9 +168,29 @@ async def test_aegea_renova_e_expira() -> None:
             await adapter.resume(aegea_session(minutes=-1))
         with pytest.raises(SessionExpired):
             await adapter.resume({"access_token": "x"})
-        respx.get(f"{AEGEA_API}/cliente/matriculas").mock(return_value=httpx.Response(401))
-        with pytest.raises(SessionExpired):
+        respx.get(f"{AEGEA_API}/cliente/matriculas").mock(return_value=httpx.Response(401, json={"message": "expirado"}))
+        with pytest.raises(SessionExpired, match="expirado"):  # renova (B2C recusa) e não tenta mais
             await adapter.list_accounts(session)
+
+
+@respx.mock
+async def test_aegea_token_recusado_renova_uma_vez_ou_aponta_a_chave() -> None:
+    respx.post(B2C_TOKEN).mock(return_value=httpx.Response(200, json={"access_token": "at-2", "expires_in": 3600}))
+    lista = respx.get(f"{AEGEA_API}/cliente/matriculas").mock(side_effect=[
+        httpx.Response(401, text="Unauthorized"), httpx.Response(200, json=MATRICULAS)])
+    async with httpx.AsyncClient() as http:
+        adapter = get_adapter("aegea", "corsan").use(http, apim_key="k")
+        session = await adapter.resume(aegea_session())
+        assert await adapter.list_accounts(session)
+        assert lista.calls.last.request.headers["Authorization"] == "Bearer at-2"
+        lista.side_effect = None
+        lista.return_value = httpx.Response(401, json={
+            "statusCode": 401, "message": "Access denied due to invalid subscription key."})
+        with pytest.raises(RuntimeError, match="HUB_AEGEA_APIM_KEY"):
+            await adapter.list_accounts(session)
+        lista.return_value = httpx.Response(401, json=["lista"])
+        with pytest.raises(SessionExpired, match="HTTP 401"):
+            await adapter._get(session, "cliente/matriculas", retry=False)
 
 
 @pytest.fixture
@@ -189,8 +209,9 @@ async def test_coletor_publica_resultados_e_pede_login(repo: Repository) -> None
     async with httpx.AsyncClient() as http:
         [login] = await collect(env, repo, http)
         assert login.type == "collect.login_required" and "login assistido" in login.payload["reason"]
-        repo.save_session("aegea", "corsan", aegea_session(), None)
+        repo.save_session("aegea", "corsan", aegea_session(), datetime(2026, 11, 1, tzinfo=UTC))
         [out] = await collect(env, repo, http, {"apim_key": "k"})
+        assert repo.load_session("aegea", "corsan")[1] == datetime(2026, 11, 1, tzinfo=UTC)  # type: ignore[index]
         assert out.type == "collect.result" and out.correlation_id == "cid-c"
         assert out.payload["raw"]["account_number"] == "778899" and out.payload["distributor"] == "corsan"
         other = env.model_copy(update={"payload": {**env.payload, "account_number": "1"}})

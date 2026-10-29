@@ -21,6 +21,16 @@ CLIENT_ID = "b673d12b-6c65-45b4-9c3c-299cc574b4f8"
 SCOPE = "https://aeclientes.onmicrosoft.com/769f3922-02f3-4a34-9145-d73e3ece30e4/AguasAPI.ReadWrite offline_access openid"
 
 
+def _detail(resp: Any) -> str:
+    """Motivo da recusa (mensagem do APIM ou da API), curto, para o histórico de coletas."""
+    try:
+        body = resp.json()
+        text = str(body.get("message") or body.get("mensagem") or body.get("error") or "") if isinstance(body, dict) else ""
+    except ValueError:
+        text = resp.text
+    return " ".join(text.split())[:160] or f"HTTP {resp.status_code}"
+
+
 @register("aegea")
 class AegeaAdapter(ProviderAdapter):
     """Água e esgoto: unidades do grupo Aegea, incluindo Corsan (distributor="corsan").
@@ -49,6 +59,10 @@ class AegeaAdapter(ProviderAdapter):
         expires = data.get("expires_at")
         if expires and datetime.fromisoformat(expires) > datetime.now(UTC) + timedelta(minutes=2):
             return session
+        return await self._refresh(session)
+
+    async def _refresh(self, session: ProviderSession) -> ProviderSession:
+        data = session.data
         if not data.get("refresh_token"):
             raise SessionExpired("sessão da Aegea expirada: refaça o login assistido")
         resp = await self._client().post(B2C_TOKEN, headers={"Origin": PORTAL}, data={
@@ -61,10 +75,19 @@ class AegeaAdapter(ProviderAdapter):
         return session
 
     async def _get(self, session: ProviderSession, path: str, tenant: str | None = None,
-                   params: dict[str, Any] | None = None) -> Any:
+                   params: dict[str, Any] | None = None, retry: bool = True) -> Any:
         resp = await self._client().get(f"{API}/{path}", headers=self._headers(session, tenant), params=params)
         if resp.status_code == 401:
-            raise SessionExpired("token da Aegea recusado: refaça o login assistido")
+            detail = _detail(resp)
+            if "subscription key" in detail.lower():  # recusa do APIM, não do login
+                raise RuntimeError(f"a Aegea recusou a chave HUB_AEGEA_APIM_KEY do .env ({detail})")
+            if not retry or not session.data.get("refresh_token"):
+                raise SessionExpired(f"token da Aegea recusado ({detail}): refaça o login assistido")
+            try:  # token vencido antes da hora: renova uma vez e tenta de novo
+                await self._refresh(session)
+            except SessionExpired as exc:
+                raise SessionExpired(f"token da Aegea recusado ({detail}) e {exc}") from exc
+            return await self._get(session, path, tenant, params, retry=False)
         resp.raise_for_status()
         return resp.json().get("content")
 

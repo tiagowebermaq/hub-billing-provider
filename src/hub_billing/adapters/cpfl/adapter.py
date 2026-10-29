@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -18,6 +19,7 @@ from hub_billing.adapters.registry import register
 from hub_billing.collection.values import parse_date, parse_money, parse_reference
 from hub_billing.domain.models import UtilityType
 
+log = logging.getLogger(__name__)
 DISTRIBUTORS = {"paulista", "piratininga", "santa-cruz", "rge"}
 API = "https://servicosonline.cpfl.com.br/agencia-webapi/api"
 WEBAPP = "https://servicosonline.cpfl.com.br/agencia-webapp/"
@@ -96,20 +98,91 @@ class CpflAdapter(ProviderAdapter):
         return session.data.get("site") == "agencia-virtual" and not session.data.get("access_token")
 
     async def _site_get(self, session: ProviderSession, url: str) -> httpx.Response:
-        headers = {k: v for k, v in self._headers(session, auth=False).items() if k in ("User-Agent", "Cookie")}
-        resp = await self._client().get(url, headers=headers, follow_redirects=True)
+        return await self._site_request(session, "GET", url)
+
+    async def _site_request(self, session: ProviderSession, method: str, url: str, data: dict[str, str] | None = None,
+                            ajax: bool = False) -> httpx.Response:
+        """Pedido ao site novo com os cookies da sessão; guarda os cookies que o site renovar no caminho."""
+        cookies = session.data["cookies"] = dict(session.data.get("cookies") or {})
+        headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())}
+        if session.data.get("user_agent"):
+            headers["User-Agent"] = session.data["user_agent"]
+        if ajax:
+            headers.update({"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
+        resp = await self._client().request(method, url, data=data, headers=headers, follow_redirects=True)
+        for step in (*resp.history, resp):
+            cookies.update({k: v for k, v in step.cookies.items() if v})
         if resp.status_code in (401, 403):
             raise SessionExpired(f"a CPFL recusou a sessão (HTTP {resp.status_code}): refaça o login assistido")
         resp.raise_for_status()
         return resp
 
+    async def _site_form(self, session: ProviderSession, pn: str | None = None) -> tuple[dict[str, Any], str] | None:
+        """Abre a escolha de UC e carrega, por AJAX, a lista de UCs do titular. None se a página mudou."""
+        resp = await self._site_get(session, av.SELECAO)
+        form = av.parse_selecao(resp.text)
+        if form is None:
+            return None
+        pn = pn or form["parceiro_negocio"]
+        ajax = await self._site_request(session, "POST", av.SELECAO_AJAX, ajax=True, data={
+            "parceiro_negocio": pn, "form_build_id": form["form_build_id"], "form_id": form["form_id"],
+            "_triggering_element_name": "parceiro_negocio", "_drupal_ajax": "1", **form["ajax_page_state"]})
+        try:
+            fragment, build_id = av.parse_ajax(ajax.json())
+        except ValueError:
+            fragment, build_id = "", None
+        form.update(parceiro_negocio=pn, form_build_id=build_id or form["form_build_id"], fragment=fragment)
+        return form, fragment
+
+    async def _site_choose(self, session: ProviderSession, escolha: dict[str, str]) -> None:
+        """Troca a UC da sessão no site (botão Acessar da página de escolha)."""
+        loaded = await self._site_form(session, escolha.get("pn"))
+        if loaded is None:
+            raise ValueError("a página de escolha de UC da CPFL mudou")
+        form, _ = loaded
+        await self._site_request(session, "POST", av.SELECAO, data={
+            "parceiro_negocio": form["parceiro_negocio"], escolha["campo"]: escolha["valor"],
+            "form_build_id": form["form_build_id"], "form_id": form["form_id"], "op": "Acessar"})
+
+    async def _site_choices(self, session: ProviderSession) -> list[dict[str, str]]:
+        """Todas as UCs do login, de todos os titulares. Vazio quando não deu para ler a lista."""
+        loaded = await self._site_form(session)
+        if loaded is None:
+            return []
+        form, fragment = loaded
+        pns = [form["parceiro_negocio"]]
+        if form.get("pns_url"):
+            try:
+                resp = await self._site_request(session, "GET", f"{av.SITE}{form['pns_url']}", ajax=True)
+                pns = list(dict.fromkeys([*pns, *av.parse_pns(resp.json())]))
+            except (httpx.HTTPError, ValueError):
+                pass
+        choices = [{**c, "pn": pns[0]} for c in av.parse_ucs(fragment)]
+        for pn in pns[1:]:
+            other = await self._site_form(session, pn)
+            choices += [{**c, "pn": pn} for c in av.parse_ucs(other[1])] if other else []
+        if not choices:
+            av.save_diagnostic("selecao-ucs.html", fragment or "(lista de UCs vazia)")
+        return choices
+
     async def list_accounts(self, session: ProviderSession) -> list[ProviderAccount]:
         if self._site(session):
-            resp = await self._site_get(session, av.PAGINA_INICIAL)
-            if av.is_login_page(str(resp.url), resp.text):
-                raise SessionExpired("sessão da CPFL expirada: refaça o login assistido")
-            conta = av.parse_conta_atual(resp.text)
-            return [ProviderAccount(account_number=conta["instalacao"], extra={"conta_atual": conta})] if conta else []
+            try:
+                choices = await self._site_choices(session)
+            except httpx.HTTPError as exc:  # sem a lista, coleta ao menos a UC aberta no login
+                log.warning("não deu para listar as UCs da CPFL: %s", exc)
+                choices = []
+            accounts: dict[str, ProviderAccount] = {}
+            options: list[dict[str, str] | None] = list(choices) or [None]
+            for escolha in options:
+                if escolha is not None:
+                    await self._site_choose(session, escolha)
+                conta = await self._site_conta_atual(session)
+                if conta:
+                    extra = {"conta_atual": conta, **({"escolha": escolha} if escolha else {})}
+                    accounts.setdefault(conta["instalacao"], ProviderAccount(account_number=conta["instalacao"],
+                                                                             extra=extra))
+            return list(accounts.values())
         found: dict[str, ProviderAccount] = {}
         candidates = [_as_obj(session.data.get("Instalacao")), *(_as_obj(session.data.get("ListaInstalacoes")) or [])]
         for inst in candidates:
@@ -117,6 +190,12 @@ class CpflAdapter(ProviderAdapter):
                 number = str(inst["Instalacao"])
                 found.setdefault(number, ProviderAccount(account_number=number, extra=dict(inst)))
         return list(found.values())
+
+    async def _site_conta_atual(self, session: ProviderSession) -> dict[str, Any] | None:
+        resp = await self._site_get(session, av.PAGINA_INICIAL)
+        if av.is_login_page(str(resp.url), resp.text):
+            raise SessionExpired("sessão da CPFL expirada: refaça o login assistido")
+        return av.parse_conta_atual(resp.text)
 
     async def fetch_bills(
         self, session: ProviderSession, account: ProviderAccount, reference: str | None = None
@@ -129,7 +208,8 @@ class CpflAdapter(ProviderAdapter):
             return [RawBill(provider=self.code, account_number=account.account_number, reference_month=c["referencia"],
                             due_date=parse_date(c["vencimento"]), amount=parse_money(c["valor"]),
                             payload={"source": "agencia-virtual", "digitable_line": c["codigo_barras"],
-                                     "status": c["situacao"], "numeroContaEnergia": c["numero_conta"]})]
+                                     "status": c["situacao"], "numeroContaEnergia": c["numero_conta"],
+                                     **({"escolha": account.extra["escolha"]} if account.extra.get("escolha") else {})})]
         body = {"RetornarDetalhes": True, "GerarProtocolo": False,
                 **{k: account.extra.get(k) for k in _INSTALLATION_FIELDS}}
         resp = await self._client().post(f"{self._api(session)}/historico-contas/validar-situacao", json=body,
@@ -155,6 +235,8 @@ class CpflAdapter(ProviderAdapter):
     async def download_document(self, session: ProviderSession, bill: RawBill) -> bytes:
         p = bill.payload
         if p.get("source") == "agencia-virtual":
+            if p.get("escolha"):  # a conta completa é sempre da UC aberta na sessão
+                await self._site_choose(session, p["escolha"])
             resp = await self._site_get(session, av.CONTA_COMPLETA)
             if "pdf" not in resp.headers.get("content-type", ""):
                 raise ValueError("a CPFL não devolveu o PDF da conta completa")

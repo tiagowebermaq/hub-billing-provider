@@ -34,6 +34,7 @@ def test_le_conta_atual_da_pagina_inicial() -> None:
 
 @respx.mock
 async def test_coleta_pelo_site_novo() -> None:
+    respx.get(av.SELECAO).mock(return_value=httpx.Response(200, text="<html>outra página</html>"))
     pagina = respx.get(av.PAGINA_INICIAL).mock(return_value=httpx.Response(200, text=PAGINA))
     respx.get(av.CONTA_COMPLETA).mock(return_value=httpx.Response(200, content=b"%PDF",
                                                                   headers={"content-type": "application/pdf"}))
@@ -54,6 +55,7 @@ async def test_coleta_pelo_site_novo() -> None:
 
 @respx.mock
 async def test_site_novo_sessao_expirada_ou_sem_pdf() -> None:
+    respx.get(av.SELECAO).mock(return_value=httpx.Response(500))
     async with httpx.AsyncClient() as http:
         adapter = get_adapter("cpfl", "rge").use(http)
         session = await adapter.resume(SESSAO)
@@ -71,3 +73,85 @@ async def test_site_novo_sessao_expirada_ou_sem_pdf() -> None:
         [bill] = await adapter.fetch_bills(session, conta)
         with pytest.raises(ValueError):
             await adapter.download_document(session, bill)
+
+
+SELECAO = """<form action="/agencia/area-cliente/selecionar-perfil-instalacao" method="post">
+<input class="custom-select select-instalacao" data-url="/api/gestao-acesso/pns?perfilId=p1"
+ data-custom-select-default="111" type="text" name="parceiro_negocio" value="111">
+<input class="padrao-rf003" type="text" name="filtro_num_instalacao" value="">
+<div id="edit-items"></div>
+<input type="submit" name="op" value="Acessar">
+<input type="hidden" name="form_build_id" value="form-abc">
+<input type="hidden" name="form_id" value="cpflenergia_service_selecionar_perfil_instalacao_form"></form>
+<script type="application/json" data-drupal-selector="drupal-settings-json">
+{"ajaxPageState": {"theme": "cpfl_theme", "libraries": "x,y", "other": 1}}</script>"""
+
+
+def _lista(*ucs: str) -> list[dict[str, str]]:
+    radios = "".join(f'<input type="radio" name="instalacao" value="{u}"><label>UC {u}</label>' for u in ucs)
+    return [{"command": "settings"}, {"command": "update_build_id", "old": "form-abc", "new": "form-def"},
+            {"command": "insert", "method": "replaceWith", "data": f'<div id="instalacoes-wrapper">{radios}'
+             '<input type="radio" name="filtro_status" value="true"></div>'}]
+
+
+def test_le_formulario_e_lista_de_ucs() -> None:
+    form = av.parse_selecao(SELECAO)
+    assert form == {"form_build_id": "form-abc", "form_id": "cpflenergia_service_selecionar_perfil_instalacao_form",
+                    "parceiro_negocio": "111", "pns_url": "/api/gestao-acesso/pns?perfilId=p1",
+                    "ajax_page_state": {"ajax_page_state[theme]": "cpfl_theme", "ajax_page_state[libraries]": "x,y"}}
+    assert av.parse_selecao("<html></html>") is None
+    fragment, build_id = av.parse_ajax(_lista("4000000001", "4000000002", "4000000001"))
+    assert build_id == "form-def"
+    assert av.parse_ucs(fragment) == [{"campo": "instalacao", "valor": "4000000001"},
+                                      {"campo": "instalacao", "valor": "4000000002"}]
+    assert av.parse_ajax({"erro": 1}) == ("", None)
+    assert av.parse_pns({"results": [{"id": "111", "text": "x"}, {"text": "sem id"}]}) == ["111"]
+
+
+@respx.mock
+async def test_coleta_todas_as_ucs_do_login(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(av, "DIAG_DIR", tmp_path)
+    aberta = {"uc": "4000000001"}
+    respx.get(av.SELECAO).mock(return_value=httpx.Response(200, text=SELECAO))
+    respx.get(f"{av.SITE}/api/gestao-acesso/pns").mock(return_value=httpx.Response(
+        200, json={"results": [{"id": "111"}, {"id": "222"}]}))
+
+    def ajax(request: httpx.Request) -> httpx.Response:
+        pn = dict(httpx.QueryParams(request.content.decode()))["parceiro_negocio"]
+        return httpx.Response(200, json=_lista("4000000001", "4000000002") if pn == "111" else _lista("4000000003"))
+
+    def acessar(request: httpx.Request) -> httpx.Response:
+        form = dict(httpx.QueryParams(request.content.decode()))
+        assert form["op"] == "Acessar" and form["form_build_id"] == "form-def"
+        aberta["uc"] = form["instalacao"]
+        return httpx.Response(200, text="ok", headers={"set-cookie": "SSESSx=novo; path=/"})
+
+    respx.post(av.SELECAO_AJAX).mock(side_effect=ajax)
+    respx.post(av.SELECAO).mock(side_effect=acessar)
+    respx.get(av.PAGINA_INICIAL).mock(side_effect=lambda r: httpx.Response(
+        200, text=PAGINA.replace("4000123456", aberta["uc"])))
+    respx.get(av.CONTA_COMPLETA).mock(side_effect=lambda r: httpx.Response(
+        200, content=aberta["uc"].encode(), headers={"content-type": "application/pdf"}))
+    async with httpx.AsyncClient() as http:
+        adapter = get_adapter("cpfl", "rge").use(http)
+        session = await adapter.resume(dict(SESSAO, cookies={"SSESSx": "abc"}))
+        contas = await adapter.list_accounts(session)
+        assert [c.account_number for c in contas] == ["4000000001", "4000000002", "4000000003"]
+        assert contas[2].extra["escolha"] == {"campo": "instalacao", "valor": "4000000003", "pn": "222"}
+        assert session.data["cookies"]["SSESSx"] == "novo"  # cookie renovado volta para a sessão salva
+        [bill] = await adapter.fetch_bills(session, contas[0])
+        assert await adapter.download_document(session, bill) == b"4000000001"
+
+
+@respx.mock
+async def test_lista_de_ucs_ilegivel_coleta_a_uc_aberta(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(av, "DIAG_DIR", tmp_path)
+    sem_titulares = SELECAO.replace(' data-url="/api/gestao-acesso/pns?perfilId=p1"', "")
+    respx.get(av.SELECAO).mock(return_value=httpx.Response(200, text=sem_titulares))
+    respx.post(av.SELECAO_AJAX).mock(return_value=httpx.Response(200, text="não é json"))
+    respx.get(av.PAGINA_INICIAL).mock(return_value=httpx.Response(200, text=PAGINA))
+    async with httpx.AsyncClient() as http:
+        adapter = get_adapter("cpfl", "rge").use(http)
+        [conta] = await adapter.list_accounts(await adapter.resume(SESSAO))
+    assert conta.account_number == "4000123456" and "escolha" not in conta.extra
+    assert (tmp_path / "selecao-ucs.html").exists()
