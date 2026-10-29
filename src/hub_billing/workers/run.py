@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import logging
+from pathlib import Path
 
 import aio_pika
 import httpx
@@ -24,7 +25,8 @@ log = logging.getLogger("hub.worker")
 
 async def _run(name: str) -> None:
     settings = get_settings()
-    hub_logging.setup(settings.log_level)
+    hub_logging.setup(settings.log_level, Path("logs") / f"worker-{name}.log")
+    log.info("iniciando worker %s", name)
     load_builtin()
     connection = await aio_pika.connect_robust(settings.rabbitmq_url)
     channel = await connection.channel()
@@ -42,9 +44,12 @@ async def _run(name: str) -> None:
 
     async def handler(env: Envelope) -> None:
         extra = {"extra_fields": {"worker": name, "message_id": env.message_id}}
+        log.info("recebido %s %s", env.type, env.payload.get("provider", ""), extra=extra)
         if name == "collector":
             options = {"apim_key": settings.aegea_apim_key} if env.payload.get("provider") == "aegea" else {}
-            for out in await handlers.collect(env, repo, http, options):
+            outs = await handlers.collect(env, repo, http, options)
+            log.info("coleta concluída: %s mensagens", len(outs), extra=extra)
+            for out in outs:
                 if out.type == "collect.result":
                     await emit(out, topology.EX_COLLECT, f"collect.result.{env.payload['provider']}")
                 else:
@@ -55,9 +60,7 @@ async def _run(name: str) -> None:
             await emit(handlers.store_bill(env, repo), topology.EX_EVENTS, "")
         elif name == "dispatcher":
             await emit(await handlers.dispatch(env, repo, rental), topology.EX_EVENTS, "")
-        else:
-            # webhooks: entrega aos assinantes entra com o cadastro de assinaturas.
-            log.info("recebido %s", env.type, extra=extra)
+        # webhooks: entrega aos assinantes entra com o cadastro de assinaturas (por ora, só o log acima).
 
     await rabbit.consume(channel, WORKERS[name], handler)
     log.info("worker %s ouvindo %s", name, WORKERS[name])
@@ -67,7 +70,11 @@ async def _run(name: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("worker", choices=sorted(WORKERS))
-    asyncio.run(_run(parser.parse_args().worker))
+    try:
+        asyncio.run(_run(parser.parse_args().worker))
+    except Exception:  # falha ao subir (RabbitMQ, banco, .env): fica no arquivo de log
+        log.exception("worker parou com erro")
+        raise
 
 
 if __name__ == "__main__":

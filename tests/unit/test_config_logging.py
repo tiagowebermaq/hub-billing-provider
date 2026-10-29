@@ -1,5 +1,6 @@
 import json
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -39,5 +40,23 @@ def test_setup_installs_single_json_handler(capsys: pytest.CaptureFixture[str]) 
         assert data["msg"] == "erro com acento: coleta"
         assert "RuntimeError: falhou" in data["exc"]
     finally:
+        root.handlers[:] = old_handlers
+        root.setLevel(old_level)
+
+
+def test_setup_grava_tambem_em_arquivo(tmp_path: Path) -> None:
+    root = logging.getLogger()
+    old_handlers, old_level = root.handlers[:], root.level
+    try:
+        hub_logging.setup("INFO", tmp_path / "logs" / "worker-collector.log")
+        logging.getLogger("hub.worker").info("coleta concluída")
+        for h in root.handlers:
+            h.flush()
+        line = (tmp_path / "logs" / "worker-collector.log").read_text(encoding="utf-8").strip()
+        assert json.loads(line)["msg"] == "coleta concluída"
+    finally:
+        for h in root.handlers:
+            if h not in old_handlers:
+                h.close()
         root.handlers[:] = old_handlers
         root.setLevel(old_level)
