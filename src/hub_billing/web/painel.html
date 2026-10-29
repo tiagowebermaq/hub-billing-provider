@@ -284,9 +284,13 @@ const guarda = {
 };
 let token = guarda.ler();
 
+const SEM_HUB = "O hub não respondeu. Confira se a janela \"Hub API\" está aberta; se não estiver, rode o aplicacao.bat.";
+
 async function api(path, opts = {}) {
   const headers = {Authorization: `Bearer ${token}`, ...(opts.json ? {"Content-Type": "application/json"} : {})};
-  const res = await fetch(path, {...opts, headers, body: opts.json ? JSON.stringify(opts.json) : opts.body});
+  let res;
+  try { res = await fetch(path, {...opts, headers, body: opts.json ? JSON.stringify(opts.json) : opts.body}); }
+  catch (e) { throw new Error(SEM_HUB); }
   if (res.status === 401) { logout(); throw new Error("Sessão expirada, entre de novo."); }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : `Erro ${res.status}`);
@@ -363,7 +367,12 @@ async function conectar(provider, distributor) {
   try {
     let job = await api(`/api/v1/providers/${provider}/connect`, {method: "POST", json: {distributor: distributor || null}});
     say("#m-conectar", `Abrimos o portal da ${nome} numa janela do navegador. Entre com usuário, senha e código; esta tela atualiza sozinha.`);
-    while (job.status === "aguardando") { await pausa(3000); job = await api(`/api/v1/providers/connect/${job.id}`); }
+    let falhas = 0;  // tolera o hub reiniciando por alguns segundos
+    while (job.status === "aguardando") {
+      await pausa(3000);
+      try { job = await api(`/api/v1/providers/connect/${job.id}`); falhas = 0; }
+      catch (err) { if (err.message !== SEM_HUB || ++falhas > 5) throw err; }
+    }
     if (job.status === "conectado") say("#m-conectar", `${nome} conectada. Já dá para iniciar a coleta.`, "ok");
     else say("#m-conectar", `Não foi possível conectar a ${nome}: ${job.error}`, "bad");
   } catch (err) { say("#m-conectar", err.message, "bad"); }

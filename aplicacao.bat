@@ -18,8 +18,8 @@ start "Hub API" cmd /k .venv\Scripts\uvicorn.exe hub_billing.api.app:create_app 
 for %%W in (collector normalizer grouper dispatcher webhooks) do start "Hub %%W" /min cmd /k .venv\Scripts\hub-worker.exe %%W
 
 timeout /t 5 /nobreak >nul
-REM O painel abre no navegador do hub (Chromium do iniciar.bat), o mesmo das janelas de login dos portais.
-.venv\Scripts\python.exe -m hub_billing.abrir_painel http://localhost:%HUB_PORT%/painel || start "" http://localhost:%HUB_PORT%/painel
+REM O painel abre no navegador padrao. So os logins dos portais usam o navegador do hub (faixa verde).
+start "" http://localhost:%HUB_PORT%/painel
 echo.
 echo Hub rodando em http://localhost:%HUB_PORT%  (painel em /painel, documentacao da API em /docs)
 echo Para conectar RGE e Corsan: no painel, aba Portais, botao Conectar.
