@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -39,6 +40,33 @@ def _token_expiry(token: str) -> datetime | None:
     except jwt.PyJWTError:
         return None
     return datetime.fromtimestamp(exp, UTC) if exp else None
+
+
+MAX_REDIRECTS = 8
+
+
+def _update_cookies(cookies: dict[str, str], resp: httpx.Response) -> None:
+    """Aplica os Set-Cookie da resposta, inclusive os que apagam um cookie (valor vazio, Max-Age=0 ou já vencido)."""
+    changed = []
+    for header in resp.headers.get_list("set-cookie"):
+        first, *attrs = [part.strip() for part in header.split(";")]
+        name, _, value = first.partition("=")
+        if not name:
+            continue
+        opts = {k.strip().lower(): v.strip() for k, _, v in (a.partition("=") for a in attrs)}
+        expired = opts.get("max-age", "1").lstrip("-").isdigit() and int(opts.get("max-age", "1")) <= 0
+        if "expires" in opts and not expired:
+            try:
+                expired = parsedate_to_datetime(opts["expires"]) < datetime.now(UTC)
+            except (TypeError, ValueError):
+                pass
+        if expired or not value or value == "deleted":
+            cookies.pop(name, None)
+        else:
+            cookies[name] = value
+        changed.append(name)
+    if changed:  # só os nomes, nunca os valores
+        log.debug("cookies da CPFL atualizados em %s: %s", resp.url.path, ", ".join(changed))
 
 
 @register("cpfl")
@@ -102,20 +130,30 @@ class CpflAdapter(ProviderAdapter):
 
     async def _site_request(self, session: ProviderSession, method: str, url: str, data: dict[str, str] | None = None,
                             ajax: bool = False) -> httpx.Response:
-        """Pedido ao site novo com os cookies da sessão; guarda os cookies que o site renovar no caminho."""
+        """Pedido ao site novo com os cookies da sessão.
+
+        Segue os redirecionamentos um a um, atualizando os cookies a cada passo: a troca de UC renova cookies no
+        302, e reenviar os antigos faz o site mandar para o login. Redirecionar para o login é sessão expirada.
+        """
         cookies = session.data["cookies"] = dict(session.data.get("cookies") or {})
-        headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())}
-        if session.data.get("user_agent"):
-            headers["User-Agent"] = session.data["user_agent"]
-        if ajax:
-            headers.update({"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
-        resp = await self._client().request(method, url, data=data, headers=headers, follow_redirects=True)
-        for step in (*resp.history, resp):
-            cookies.update({k: v for k, v in step.cookies.items() if v})
-        if resp.status_code in (401, 403):
-            raise SessionExpired(f"a CPFL recusou a sessão (HTTP {resp.status_code}): refaça o login assistido")
-        resp.raise_for_status()
-        return resp
+        for _ in range(MAX_REDIRECTS):
+            headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())}
+            if session.data.get("user_agent"):
+                headers["User-Agent"] = session.data["user_agent"]
+            if ajax:
+                headers.update({"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
+            resp = await self._client().request(method, url, data=data, headers=headers)
+            _update_cookies(cookies, resp)
+            if resp.status_code in (401, 403):
+                raise SessionExpired(f"a CPFL recusou a sessão (HTTP {resp.status_code}): refaça o login assistido")
+            if not resp.is_redirect:
+                resp.raise_for_status()
+                return resp
+            url = str(resp.url.join(resp.headers["location"]))
+            if httpx.URL(url).host != httpx.URL(av.SITE).host or "/b2c-auth/" in url or "/cpfl-auth/login" in url:
+                raise SessionExpired("a CPFL pediu login de novo: refaça o login assistido (Conectar RGE)")
+            method, data = "GET", None
+        raise ValueError("a CPFL redirecionou demais")
 
     async def _site_form(self, session: ProviderSession, pn: str | None = None) -> tuple[dict[str, Any], str] | None:
         """Abre a escolha de UC e carrega, por AJAX, a lista de UCs do titular. None se a página mudou."""
