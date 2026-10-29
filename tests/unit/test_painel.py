@@ -21,3 +21,9 @@ def test_painel_tem_modo_claro_e_escuro(client: TestClient) -> None:
     assert 'prefers-color-scheme:dark' in html  # segue o sistema por padrão
     assert ':root[data-theme="dark"]' in html and ':root:not([data-theme="light"])' in html
     assert 'class="tema"' in html and "hub.tema" in html  # botão e escolha lembrada
+
+
+def test_painel_pede_troca_de_senha_no_primeiro_acesso(client: TestClient) -> None:
+    html = client.get("/painel").text
+    assert 'id="senha-form"' in html and "/api/v1/me/password" in html
+    assert "me.must_change_password" in html

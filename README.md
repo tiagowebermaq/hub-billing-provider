@@ -64,7 +64,9 @@ Windows (PowerShell):
 .\scripts\up.ps1  # Docker Desktop
 ```
 Copie `.env.example` para `.env` e troque os segredos. A conta admin é criada no primeiro boot com
-`HUB_ADMIN_EMAIL` / `HUB_ADMIN_PASSWORD` e a troca de senha é obrigatória no primeiro acesso.
+`HUB_ADMIN_EMAIL` / `HUB_ADMIN_PASSWORD` (padrão `admin@hub.local` / `troque-no-primeiro-acesso`) e o painel
+pede a troca de senha no primeiro acesso. Até essa troca, editar o `.env` e reiniciar atualiza o login do admin;
+depois dela vale a senha salva. Usuários, senhas e permissões ficam no banco (PostgreSQL) e sobrevivem a reinícios.
 
 ## Importar uma fatura (coleta disponível hoje)
 Enquanto o meio de coleta automática de cada concessionária não é definido (épico E1), as contas entram pelo

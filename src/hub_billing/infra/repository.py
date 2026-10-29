@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 from cryptography.fernet import InvalidToken
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     DateTime,
     Engine,
@@ -83,6 +84,20 @@ provider_sessions = Table(
     Column("distributor", String(32), primary_key=True),
     Column("data_enc", Text, nullable=False),
     Column("expires_at", DateTime(timezone=True)),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+users = Table(
+    "users", metadata,
+    Column("id", String(36), primary_key=True),
+    Column("email", String(254), nullable=False, unique=True),
+    Column("password_hash", Text, nullable=False),
+    Column("name", String(120), nullable=False, default=""),
+    Column("is_admin", Boolean, nullable=False, default=False),
+    Column("active", Boolean, nullable=False, default=True),
+    Column("must_change_password", Boolean, nullable=False, default=False),
+    Column("roles", JSON, nullable=False),
+    Column("extra_permissions", JSON, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
