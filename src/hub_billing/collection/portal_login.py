@@ -22,7 +22,6 @@ PORTALS = {
     "aegea": "https://cliente.corsan.com.br/entrar",
 }
 CPFL_COOKIE_DOMAIN = "cpfl.com.br"
-DOMAINS = {"cpfl": CPFL_COOKIE_DOMAIN, "aegea": "corsan.com.br"}
 LOGIN_TIMEOUT_S = 600
 DIAG_DIR = Path("logs")
 # Todas as chaves do sessionStorage e do localStorage, para achar a sessão mesmo se o portal mudar o nome da chave.
@@ -52,26 +51,37 @@ class LoginTimeout(RuntimeError):
 
 @dataclass
 class Seen:
-    """O que a janela do portal trafegou: respostas de token e um resumo das chamadas (sem valores) para diagnóstico."""
+    """O que a janela do portal trafegou: respostas com token e um resumo das chamadas (sem valores) para diagnóstico."""
 
-    domain: str = CPFL_COOKIE_DOMAIN
     tokens: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
 
-    def response(self, url: str, method: str, status: int, has_auth: bool, body: Callable[[], Any]) -> None:
-        parts = urlsplit(url)
-        if self.domain not in parts.netloc:
+    def response(self, url: str, method: str, status: int, has_auth: bool, body: Callable[[], Any],
+                 kind: str = "fetch") -> None:
+        """Só chamadas de API (fetch/xhr), de qualquer endereço: o site novo pode usar uma API fora do domínio."""
+        if kind not in ("fetch", "xhr"):
             return
-        line = f"{method} {parts.netloc}{parts.path} {status}{' (com token)' if has_auth else ''}"
-        if not self.calls or self.calls[-1] != line:
-            self.calls.append(line)
-        if status == 200 and parts.path.rstrip("/").endswith("/token"):
+        data = None
+        if status == 200:
             try:
                 data = body()
             except Exception:  # resposta sem JSON
-                return
-            if isinstance(data, dict) and data.get("access_token"):
-                self.tokens.append((url, data))
+                data = None
+        parts = urlsplit(url)
+        line = f"{method} {parts.netloc}{parts.path} {status}{' (com token)' if has_auth else ''}{_shape(data)}"
+        if not self.calls or self.calls[-1] != line:
+            self.calls.append(line)
+        if isinstance(data, dict) and (data.get("access_token") or data.get("accessToken")):
+            self.tokens.append((url, {**data, "access_token": data.get("access_token") or data.get("accessToken")}))
+
+
+def _shape(value: Any) -> str:
+    """Só os nomes dos campos de um JSON, para o diagnóstico mostrar a estrutura sem nenhum valor."""
+    if isinstance(value, dict):
+        return " {" + ", ".join(sorted(map(str, value))[:30]) + "}"
+    if isinstance(value, list):
+        return f" [{len(value)}]" + (_shape(value[0]) if value else "")
+    return ""
 
 
 def _storage(page: Any) -> list[tuple[str, str, Any]]:
@@ -138,17 +148,22 @@ def write_diagnostic(provider: str, seen: Seen, storage_keys: list[str], folder:
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"login-{provider}.txt"
     lines = [f"Login assistido {provider} em {datetime.now(UTC).isoformat()}", "",
-             "Chaves no navegador:", *sorted(set(storage_keys)), "", "Chamadas ao portal:", *seen.calls[-300:]]
+             "Chaves no navegador:", *sorted(set(storage_keys)), "", "Chamadas de API:", *seen.calls[-400:]]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def storage_keys(page: Any) -> list[str]:
+    return [f"{where}:{key}{_shape(value)}" for where, key, value in _storage(page)]
 
 
 def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]:  # pragma: no cover - abre navegador
     from playwright.sync_api import sync_playwright
 
-    seen = Seen(domain=DOMAINS[provider])
+    seen = Seen()
     pending: list[Any] = []
-    keys: list[str] = []
+    keys: set[str] = set()
+    closed = "a janela do portal foi fechada antes de concluir o login. "
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=False)
         try:
@@ -159,33 +174,38 @@ def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]: 
             deadline = time.monotonic() + timeout_s
             while time.monotonic() < deadline:
                 if not browser.is_connected() or not context.pages:
-                    raise LoginTimeout("a janela do portal foi fechada antes de concluir o login. "
-                                       + _diag_hint(provider, seen, keys))
+                    raise LoginTimeout(closed + _diag_hint(provider, seen, keys))
                 while pending:
                     r = pending.pop(0)
                     try:
-                        seen.response(r.url, r.request.method, r.status,
-                                      "authorization" in r.request.headers, r.json)
+                        seen.response(r.url, r.request.method, r.status, "authorization" in r.request.headers,
+                                      r.json, r.request.resource_type)
                     except Exception:  # resposta de página que já fechou
                         continue
-                for p in context.pages:
+                for p in list(context.pages):
                     try:
-                        keys = sorted({*keys, *(f"{w}:{k}" for w, k, _ in _storage(p))})
+                        keys.update(storage_keys(p))
                         data = CAPTURE[provider](p, context, seen)
                     except Exception:  # página navegando entre o portal e o login da Microsoft
                         data = None
                     if data:
+                        _diag_hint(provider, seen, keys)
                         return data
-                context.pages[0].wait_for_timeout(2000)
+                _diag_hint(provider, seen, keys)  # sempre atualizado, mesmo se a janela for fechada à força
+                try:
+                    context.pages[0].wait_for_timeout(2000)
+                except Exception:  # janela fechada durante a espera
+                    if not browser.is_connected() or not context.pages:
+                        raise LoginTimeout(closed + _diag_hint(provider, seen, keys)) from None
         finally:
             if browser.is_connected():
                 browser.close()
     raise LoginTimeout(f"o login não foi concluído em {timeout_s // 60} minutos. " + _diag_hint(provider, seen, keys))
 
 
-def _diag_hint(provider: str, seen: Seen, keys: list[str]) -> str:
+def _diag_hint(provider: str, seen: Seen, keys: set[str]) -> str:
     try:
-        path = write_diagnostic(provider, seen, keys)
+        path = write_diagnostic(provider, seen, sorted(keys))
     except OSError:
         return ""
     return f"Se você já tinha entrado e escolhido a unidade, envie o arquivo {path.resolve()} para análise."
