@@ -3,6 +3,19 @@
 Formato: `## [versão] - AAAA-MM-DD - autor`, seguido dos itens alterados.
 Política: SemVer (MAJOR = visão/escopo/arquitetura, MINOR = novo requisito/provedor/épico, PATCH = correções de texto).
 
+## [1.3.0] - 2026-10-29 - Weber
+- Versão automática após 10 PRs mergeados.
+- PR #1: Adapter Vivo, novo PO a cada 10 PRs e PO v1.2.0
+- PR #2: Importação de fatura em PDF e validação da linha digitável
+- PR #3: Persistência em PostgreSQL: vínculos conta-imóvel, contas e lotes
+- PR #4: Envio dos lotes ao sistema de aluguéis e workers de ponta a ponta
+- PR #5: Coleta automática da RGE e da Corsan pelas APIs dos portais
+- PR #6: Arquivos iniciar e aplicacao para Windows e Ubuntu
+- PR #7: Painel de administração web em /painel
+- PR #8: Cadastro do imóvel e do titular nas contas
+- PR #9: Painel no estilo verde-petróleo, claro e escuro
+- PR #10: Hub passa a usar a porta 8010 e avisa se a porta estiver ocupada
+
 ## [1.2.0] - 2026-10-28 - Weber
 - Inclui a Vivo (telecom) como fornecedor de contas de consumo, com adapter vivo e tipo TELECOM.
 - Regra de versionamento: novo PO (PDF + infográfico) a cada 10 PRs mergeados na main, gerado pela GitHub Action po-release.
