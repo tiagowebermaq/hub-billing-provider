@@ -10,7 +10,7 @@ import respx
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import login_portal  # noqa: E402
 
-from hub_billing.collection.portal_login import Seen, write_diagnostic  # noqa: E402
+from hub_billing.collection.portal_login import Seen, storage_keys, write_diagnostic  # noqa: E402
 
 
 class FakePage:
@@ -51,25 +51,31 @@ def test_captura_cpfl_site_novo_com_outra_chave() -> None:
 
 def test_captura_cpfl_pela_rede() -> None:
     seen = Seen()
-    seen.response("https://www.google.com/x", "GET", 200, False, dict)
+    seen.response("https://www.cpfl.com.br/logo.png", "GET", 200, False, dict, "image")
+    seen.response("https://outra-api.net/sessao", "GET", 200, True, lambda: [{"Nome": "x"}], "xhr")
     seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False,
-                  lambda: {"access_token": "at", "Instalacao": "{}"})
+                  lambda: {"accessToken": "at", "Instalacao": "{}"})
     seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False, lambda: json.loads("x"))
     seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False, lambda: {"erro": 1})
     seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False, lambda: {"erro": 1})
     data = login_portal.cpfl_capture(FakePage(), FakeContext(), seen)
     assert data is not None and data["api_base"] == "https://api.cpfl.com.br/agencia-webapi/api"
     assert data["origin"] == "https://www.cpfl.com.br" and data["referer"] == FakePage.url
-    assert seen.calls == ["POST api.cpfl.com.br/agencia-webapi/api/token 200"]
+    assert seen.calls == ["GET outra-api.net/sessao 200 (com token) [1] {Nome}",
+                          "POST api.cpfl.com.br/agencia-webapi/api/token 200 {Instalacao, accessToken}",
+                          "POST api.cpfl.com.br/agencia-webapi/api/token 200",
+                          "POST api.cpfl.com.br/agencia-webapi/api/token 200 {erro}"]
 
 
 def test_diagnostico_nao_guarda_tokens(tmp_path: Path) -> None:
     seen = Seen()
     seen.response("https://api.cpfl.com.br/api/token?code=segredo", "POST", 200, True, lambda: {"access_token": "at"})
-    path = write_diagnostic("cpfl", seen, ["session:userSessionStorage"], tmp_path)
+    page = FakePage({"userSessionStorage": json.dumps({"access_token": "segredo2"}), "simples": "abc"})
+    path = write_diagnostic("cpfl", seen, storage_keys(page), tmp_path)
     texto = path.read_text(encoding="utf-8")
-    assert "POST api.cpfl.com.br/api/token 200 (com token)" in texto and "session:userSessionStorage" in texto
-    assert "segredo" not in texto and "at\n" not in texto
+    assert "POST api.cpfl.com.br/api/token 200 (com token) {access_token}" in texto
+    assert "session:userSessionStorage {access_token}" in texto and "session:simples\n" in texto
+    assert "segredo" not in texto and "abc" not in texto
 
 
 def test_captura_aegea() -> None:
