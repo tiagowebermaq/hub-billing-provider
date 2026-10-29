@@ -42,3 +42,8 @@ def test_login_no_novo_visual(client: TestClient) -> None:
                    "Ainda não tem uma conta?", "Cadastre-se", 'class="olho"', "/api/v1/auth/signup",
                    'data-tab="usuarios"', "/reset-password"):
         assert trecho in html, trecho
+
+
+def test_painel_avisa_quando_o_hub_nao_responde(client: TestClient) -> None:
+    html = client.get("/painel").text
+    assert "O hub não respondeu" in html and "falhas > 5" in html  # sem "Failed to fetch" cru na tela

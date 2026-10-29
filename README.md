@@ -31,8 +31,8 @@ O jeito mais simples, na pasta do projeto:
 | Parar a aplicação | `parar.bat` | `./parar.sh` (ou Ctrl+C) |
 | Esqueci a senha do painel | `resetar-senha.bat` | `.venv/bin/python tools/reset_admin.py` |
 
-O `aplicacao.bat` abre o painel numa janela própria do navegador do hub (o Chromium instalado pelo `iniciar.bat`),
-separada do Chrome do dia a dia. Os logins da RGE e da Corsan são feitos pelo botão **Conectar** da aba Portais,
+O `aplicacao.bat` abre o painel no navegador padrão. Só os logins dos portais usam o navegador do hub (o Chromium
+instalado pelo `iniciar.bat`): os logins da RGE e da Corsan são feitos pelo botão **Conectar** da aba Portais,
 que abre o portal numa janela com a faixa verde "Janela do Hub Billing"; um portal aberto no Chrome comum não
 conecta o hub.
 

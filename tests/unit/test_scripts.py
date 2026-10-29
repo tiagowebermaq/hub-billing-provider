@@ -14,3 +14,8 @@ def test_parar_fecha_workers_e_api_do_hub() -> None:
     assert "hub-worker.exe" in bat and "Hub API" in bat and "docker compose stop" in bat
     assert "uvicorn.exe" not in bat  # não derruba a API de outros projetos que usam uvicorn
     assert "parar.bat" in (ROOT / "iniciar.bat").read_text(encoding="utf-8")
+
+
+def test_painel_abre_no_navegador_padrao() -> None:
+    bat = (ROOT / "aplicacao.bat").read_text(encoding="utf-8")
+    assert 'start "" http://localhost:%HUB_PORT%/painel' in bat and "abrir_painel" not in bat
