@@ -83,12 +83,10 @@ e o número da conta. `account_number` e `reference_month` podem ser enviados pa
 
 ## Coleta automática pelos portais (RGE/CPFL e Corsan/Aegea)
 Os portais usam login da Microsoft (B2C) com código de verificação, então o login é feito por uma pessoa e o hub
-reaproveita o token. No PC onde o hub roda (precisa de `pip install -e ".[portal]"` e `python -m playwright install chromium`):
-```
-python tools/login_portal.py cpfl --distributor rge       # abre o portal da RGE; entre normalmente
-python tools/login_portal.py aegea --distributor corsan   # idem na Corsan
-```
-Depois dispare a coleta por `POST /api/v1/collections`. A senha do portal nunca é guardada: só o token, cifrado com
+reaproveita o token. No painel, aba **Portais**, clique em **Conectar RGE** ou **Conectar Corsan**: o portal abre numa
+janela do navegador no PC onde o hub roda, você entra normalmente e a sessão é salva sozinha (o `iniciar.bat` já
+instala o navegador). Pelo terminal também dá: `python tools/login_portal.py cpfl --distributor rge` (ou `aegea --distributor corsan`).
+Depois dispare a coleta na mesma aba ou por `POST /api/v1/collections`. A senha do portal nunca é guardada: só o token, cifrado com
 `HUB_ENCRYPTION_KEY` (a mesma na API e nos workers). Detalhes em `docs/descoberta-portais.md`.
 
 ## Correlation ID

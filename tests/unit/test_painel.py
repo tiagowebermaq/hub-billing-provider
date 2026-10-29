@@ -27,3 +27,10 @@ def test_painel_pede_troca_de_senha_no_primeiro_acesso(client: TestClient) -> No
     html = client.get("/painel").text
     assert 'id="senha-form"' in html and "/api/v1/me/password" in html
     assert "me.must_change_password" in html
+
+
+def test_painel_conecta_portais_sem_terminal(client: TestClient) -> None:
+    html = client.get("/painel").text
+    assert 'data-provider="cpfl" data-distributor="rge"' in html
+    assert 'data-provider="aegea" data-distributor="corsan"' in html
+    assert "/connect" in html and "login_portal.py" not in html

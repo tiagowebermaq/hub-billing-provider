@@ -15,6 +15,7 @@ from hub_billing.adapters.registry import available, get_adapter, load_builtin
 from hub_billing.api.deps import current_user, get_app_settings, get_store, require
 from hub_billing.api.users import User, UserStore
 from hub_billing.collection.invoice import InvoiceParseError
+from hub_billing.collection.portal_login import Capture, PortalLogins
 from hub_billing.core import correlation
 from hub_billing.core.config import Settings, get_settings
 from hub_billing.core.security import create_token, hash_password, verify_password
@@ -96,6 +97,18 @@ class ProviderSessionIn(BaseModel):
     expires_at: datetime | None = None
 
 
+class ConnectIn(BaseModel):
+    distributor: str | None = None
+
+
+class LoginJobOut(BaseModel):
+    id: str
+    provider: str
+    distributor: str | None
+    status: str
+    error: str | None = None
+
+
 class CloseBatchesIn(BaseModel):
     reference_month: str
 
@@ -108,7 +121,7 @@ class CollectionIn(BaseModel):
 
 
 def create_app(settings: Settings | None = None, publisher: Publisher | None = None,
-               repo: Repository | None = None) -> FastAPI:
+               repo: Repository | None = None, portal_capture: Capture | None = None) -> FastAPI:
     settings = settings or get_settings()
     load_builtin()
     app = FastAPI(title="Hub Billing Provider", version=__version__)
@@ -118,6 +131,12 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
     app.state.repo.create_schema()
     app.state.users = UserStore(app.state.repo.engine)
     app.state.users.ensure_admin(settings.admin_email, settings.admin_password)
+    db_: Repository = app.state.repo
+    app.state.portal_logins = PortalLogins(
+        lambda provider, distributor, data: db_.save_session(
+            provider, distributor, data,
+            datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None),
+        portal_capture)
     db: Repository = app.state.repo
 
     @app.middleware("http")
@@ -212,6 +231,26 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
         if provider not in available():
             raise HTTPException(422, f"provedor desconhecido: {provider}")
         db.save_session(provider, body.distributor, body.data, body.expires_at)
+
+    @app.post("/api/v1/providers/{provider}/connect", response_model=LoginJobOut, status_code=202)
+    async def connect_provider(provider: str, body: ConnectIn,
+                               _: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> LoginJobOut:
+        """Abre o portal num navegador no PC do hub para o usuário entrar; a sessão é salva cifrada ao concluir."""
+        try:
+            job = app.state.portal_logins.start(provider, body.distributor)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        return LoginJobOut(**vars(job))
+
+    @app.get("/api/v1/providers/connect/{job_id}", response_model=LoginJobOut)
+    async def connect_status(job_id: str,
+                             _: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> LoginJobOut:
+        job = app.state.portal_logins.get(job_id)
+        if job is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "login não encontrado")
+        return LoginJobOut(**vars(job))
 
     @app.get("/api/v1/providers/sessions")
     async def provider_sessions(_: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> list[dict[str, object]]:

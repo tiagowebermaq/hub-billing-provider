@@ -183,9 +183,17 @@ td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
         </form>
         <div class="msg" id="m-coleta"></div>
       </div>
+      <div class="card">
+        <h2>Conectar portais</h2>
+        <p class="msg">Ao clicar, o portal abre numa janela do navegador neste computador. Entre com o seu usuário, senha e código; o hub guarda só a sessão, cifrada. A senha não passa pelo hub.</p>
+        <div class="row" id="conectar">
+          <button class="pri" type="button" data-provider="cpfl" data-distributor="rge">Conectar RGE (energia)</button>
+          <button class="pri" type="button" data-provider="aegea" data-distributor="corsan">Conectar Corsan (água)</button>
+        </div>
+        <div class="msg" id="m-conectar"></div>
+      </div>
       <div class="card scroll">
         <h2>Sessões dos portais</h2>
-        <p class="msg">O login é feito no seu PC com <code>tools/login_portal.py</code>; aqui aparecem só a validade e a última atualização.</p>
         <table id="t-portais"></table>
       </div>
     </section>
@@ -272,7 +280,24 @@ async function loadPortais() {
     ["Situação", r => !r.expires_at || new Date(r.expires_at) > now
       ? `<span class="chip ok">Conectado</span>` : `<span class="chip bad">Login necessário</span>`],
     ["Atualizado", r => when(r.updated_at)],
-  ], await api("/api/v1/providers/sessions").catch(() => []), "Nenhum portal conectado ainda.");
+    ["", r => PORTAIS[r.provider] ? `<button class="sec" data-provider="${esc(r.provider)}" data-distributor="${esc(r.distributor || "")}">Reconectar</button>` : ""],
+  ], await api("/api/v1/providers/sessions").catch(() => []), "Nenhum portal conectado ainda. Use os botões acima.");
+}
+
+const PORTAIS = {cpfl: "RGE", aegea: "Corsan"};
+const pausa = ms => new Promise(r => setTimeout(r, ms));
+
+async function conectar(provider, distributor) {
+  const nome = PORTAIS[provider] || provider;
+  document.querySelectorAll("[data-provider]").forEach(b => b.disabled = true);
+  try {
+    let job = await api(`/api/v1/providers/${provider}/connect`, {method: "POST", json: {distributor: distributor || null}});
+    say("#m-conectar", `Abrimos o portal da ${nome} numa janela do navegador. Entre com usuário, senha e código; esta tela atualiza sozinha.`);
+    while (job.status === "aguardando") { await pausa(3000); job = await api(`/api/v1/providers/connect/${job.id}`); }
+    if (job.status === "conectado") say("#m-conectar", `${nome} conectada. Já dá para iniciar a coleta.`, "ok");
+    else say("#m-conectar", `Não foi possível conectar a ${nome}: ${job.error}`, "bad");
+  } catch (err) { say("#m-conectar", err.message, "bad"); }
+  finally { document.querySelectorAll("[data-provider]").forEach(b => b.disabled = false); loadPortais(); }
 }
 
 const LOADERS = {faturas: loadFaturas, contas: loadContas, lotes: loadLotes, portais: loadPortais, importar: async () => {}};
@@ -380,6 +405,10 @@ $("#t-lotes").addEventListener("click", async e => {
   const id = e.target.dataset.resend; if (!id) return;
   try { await api(`/api/v1/batches/${id}/resend`, {method: "POST"}); say("#m-fechar", "Lote reenviado.", "ok"); loadLotes(); }
   catch (err) { say("#m-fechar", err.message, "bad"); }
+});
+$("[data-view=portais]").addEventListener("click", e => {
+  const b = e.target.closest("button[data-provider]");
+  if (b) conectar(b.dataset.provider, b.dataset.distributor);
 });
 $("#f-coleta").addEventListener("submit", async e => {
   e.preventDefault();
