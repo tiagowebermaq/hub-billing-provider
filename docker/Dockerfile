@@ -10,7 +10,7 @@ FROM base AS test
 RUN pip install -e ".[dev]"
 COPY tests ./tests
 COPY tools ./tools
-COPY iniciar.bat aplicacao.bat parar.bat ./
+COPY iniciar.bat aplicacao.bat parar.bat resetar-senha.bat ./
 CMD ["sh", "-c", "ruff check src tests tools && mypy src && pytest --cov --cov-report=term-missing --cov-fail-under=80"]
 
 # Estágio final: imagem de produção

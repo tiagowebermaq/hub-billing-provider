@@ -29,6 +29,7 @@ O jeito mais simples, na pasta do projeto:
 | Preparar (uma vez, ou após atualizar) | `iniciar.bat` | `./iniciar.sh` |
 | Rodar a aplicação | `aplicacao.bat` | `./aplicacao.sh` |
 | Parar a aplicação | `parar.bat` | `./parar.sh` (ou Ctrl+C) |
+| Esqueci a senha do painel | `resetar-senha.bat` | `.venv/bin/python tools/reset_admin.py` |
 
 `iniciar` cria o ambiente Python, instala as dependências, gera o `.env` com segredos novos, sobe RabbitMQ, Redis e
 PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API e os

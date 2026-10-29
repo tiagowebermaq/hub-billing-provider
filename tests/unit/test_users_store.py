@@ -60,3 +60,26 @@ def test_users_survive_restart(tmp_path) -> None:  # type: ignore[no-untyped-def
     assert {u.email for u in reiniciado.all()} == {"admin@hub.local", "ana@x.com"}
     assert reiniciado.get(ana.id) == ana
     assert reiniciado.get(admin.id).must_change_password is False  # type: ignore[union-attr]
+
+
+def test_reset_admin_volta_para_o_env(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import sys
+    from pathlib import Path
+
+    from hub_billing.core.config import Settings
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import reset_admin
+
+    url = f"sqlite:///{tmp_path / 'hub.db'}"
+    store = UserStore(make_engine(url))
+    assert store.reset_admin("admin@hub.local", "padrao").is_admin  # sem admin: cria
+    admin = store.by_email("admin@hub.local")
+    assert admin is not None
+    admin.password_hash, admin.must_change_password, admin.active = "esquecida", False, False
+    store.save(admin)
+
+    settings = Settings(_env_file=None, admin_email="weber@x.com", admin_password="senha-do-env", database_url=url)
+    assert reset_admin.reset(settings) == "weber@x.com"
+    voltou = UserStore(make_engine(url)).authenticate("weber@x.com", "senha-do-env")
+    assert voltou is not None and voltou.must_change_password and voltou.id == admin.id
