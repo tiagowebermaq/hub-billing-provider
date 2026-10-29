@@ -17,7 +17,7 @@ from hub_billing.api.users import User, UserStore
 from hub_billing.collection.invoice import InvoiceParseError
 from hub_billing.core import correlation
 from hub_billing.core.config import Settings, get_settings
-from hub_billing.core.security import create_token, hash_password
+from hub_billing.core.security import create_token, hash_password, verify_password
 from hub_billing.domain.barcode import BarcodeError, from_digitable_line
 from hub_billing.domain.grouping import group_bills
 from hub_billing.domain.models import BatchStatus, Bill, BillStatus, ConsumerInfo, PropertyInfo
@@ -62,12 +62,14 @@ class UserOut(BaseModel):
     name: str
     is_admin: bool
     active: bool
+    must_change_password: bool
     roles: set[str]
     permissions: list[str]
 
     @classmethod
     def of(cls, u: User) -> UserOut:
         return cls(id=u.id, email=u.email, name=u.name, is_admin=u.is_admin, active=u.active,
+                   must_change_password=u.must_change_password,
                    roles=u.roles, permissions=sorted(p.value for p in u.permissions))
 
 
@@ -111,11 +113,11 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
     load_builtin()
     app = FastAPI(title="Hub Billing Provider", version=__version__)
     app.state.settings = settings
-    app.state.users = UserStore()
-    app.state.users.ensure_admin(settings.admin_email, settings.admin_password)
     app.state.publisher = publisher or MemoryPublisher()
     app.state.repo = repo or Repository.from_url(settings.database_url, settings.encryption_key)
     app.state.repo.create_schema()
+    app.state.users = UserStore(app.state.repo.engine)
+    app.state.users.ensure_admin(settings.admin_email, settings.admin_password)
     db: Repository = app.state.repo
 
     @app.middleware("http")
@@ -158,11 +160,15 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
         return UserOut.of(user)
 
     @app.post("/api/v1/me/password", status_code=204)
-    async def change_password(body: PasswordIn, user: Annotated[User, Depends(current_user)]) -> None:
+    async def change_password(body: PasswordIn, user: Annotated[User, Depends(current_user)],
+                              store: Annotated[UserStore, Depends(get_store)]) -> None:
         if len(body.new_password) < 10:
             raise HTTPException(422, "a senha precisa de ao menos 10 caracteres")
+        if verify_password(body.new_password, user.password_hash):
+            raise HTTPException(422, "a nova senha precisa ser diferente da atual")
         user.password_hash = hash_password(body.new_password)
         user.must_change_password = False
+        store.save(user)
 
     @app.get("/api/v1/users", response_model=list[UserOut])
     async def list_users(_: Annotated[User, Depends(require(Permission.USERS_MANAGE))],
@@ -192,6 +198,7 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
         if body.roles is not None:
             user.roles = body.roles
         user.extra_permissions = (user.extra_permissions | body.grant) - body.revoke
+        store.save(user)
         return UserOut.of(user)
 
     @app.get("/api/v1/providers")

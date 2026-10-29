@@ -75,7 +75,10 @@ def test_deactivated_user_token_is_rejected(client: TestClient, admin_headers: d
     client.post("/api/v1/users", headers=admin_headers,
                 json={"email": "c@example.com", "name": "C", "password": "senha-c-12345", "roles": ["consulta"]})
     headers = login(client, "c@example.com", "senha-c-12345")
-    client.app.state.users.by_email("c@example.com").active = False  # type: ignore[attr-defined]
+    store = client.app.state.users  # type: ignore[attr-defined]
+    user = store.by_email("c@example.com")
+    user.active = False
+    store.save(user)
     assert client.get("/api/v1/me", headers=headers).status_code == 401
 
 
@@ -85,3 +88,24 @@ def test_fake_provider_hidden_outside_dev(settings, publisher) -> None:  # type:
     prod = TestClient(create_app(settings.model_copy(update={"env": "prod"}), publisher))
     providers = prod.get("/api/v1/providers", headers=login(prod, "admin@hub.local", "admin-pass")).json()
     assert "fake" not in providers and {"cpfl", "aegea", "vivo"} <= set(providers)
+
+
+def test_password_and_users_survive_restart(tmp_path, settings) -> None:  # type: ignore[no-untyped-def]
+    from hub_billing.api.app import create_app
+    from hub_billing.infra.repository import Repository
+
+    url = f"sqlite:///{tmp_path / 'hub.db'}"
+    client = TestClient(create_app(settings, repo=Repository.from_url(url)))
+    admin = login(client, "admin@hub.local", "admin-pass")
+    assert client.get("/api/v1/me", headers=admin).json()["must_change_password"] is True
+    assert client.post("/api/v1/me/password", json={"new_password": "admin-pass"},
+                       headers=admin).status_code == 422  # precisa ser diferente
+    assert client.post("/api/v1/me/password", json={"new_password": "nova-senha-forte"},
+                       headers=admin).status_code == 204
+    assert client.post("/api/v1/users", headers=admin, json={
+        "email": "ana@example.com", "name": "Ana", "password": "senha-ana-123", "roles": ["consulta"]}).status_code == 201
+
+    reiniciado = TestClient(create_app(settings, repo=Repository.from_url(url)))
+    nova = login(reiniciado, "admin@hub.local", "nova-senha-forte")
+    assert reiniciado.get("/api/v1/me", headers=nova).json()["must_change_password"] is False
+    assert login(reiniciado, "ana@example.com", "senha-ana-123")

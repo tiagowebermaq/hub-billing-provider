@@ -56,8 +56,8 @@ header button.sec:hover{background:rgba(255,255,255,.12);border-color:#fff}
 h3.sub{flex-basis:100%;margin:8px 0 0;font-size:13px;color:var(--muted);font-weight:600}
 label.wide{flex:1 1 280px}
 td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
-#login{max-width:360px;margin:12vh auto;border-top:4px solid var(--brand)}
-#login form{flex-direction:column;align-items:stretch}
+#login,#senha{max-width:360px;margin:12vh auto;border-top:4px solid var(--brand)}
+#login form,#senha form{flex-direction:column;align-items:stretch}
 .hide{display:none}
 @media (max-width:600px){header,nav,main{padding-left:16px;padding-right:16px}}
 </style>
@@ -74,8 +74,20 @@ td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
   <div class="msg" id="login-msg"></div>
 </div>
 
+<div id="senha" class="card hide">
+  <h2>Trocar senha</h2>
+  <p class="msg" id="senha-aviso">Este é o seu primeiro acesso: crie uma senha só sua para continuar.</p>
+  <form class="row" id="senha-form">
+    <label>Nova senha<input name="new_password" type="password" autocomplete="new-password" minlength="10" required></label>
+    <label>Repita a nova senha<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>
+    <button class="pri" type="submit">Salvar senha</button>
+    <button class="sec" type="button" id="senha-cancelar">Cancelar</button>
+  </form>
+  <div class="msg" id="senha-msg"></div>
+</div>
+
 <div id="app" class="hide">
-  <header><span class="marca">H</span><h1>Hub Billing Provider</h1><span class="who" id="who"></span><button class="tema" type="button" title="Alternar modo claro/escuro"></button><button class="sec" id="sair">Sair</button></header>
+  <header><span class="marca">H</span><h1>Hub Billing Provider</h1><span class="who" id="who"></span><button class="tema" type="button" title="Alternar modo claro/escuro"></button><button class="sec" id="trocar-senha">Trocar senha</button><button class="sec" id="sair">Sair</button></header>
   <nav id="tabs">
     <button data-tab="faturas" class="on">Faturas</button>
     <button data-tab="importar">Importar fatura</button>
@@ -272,8 +284,17 @@ function show(tab) {
   LOADERS[tab]().catch(e => console.error(e));
 }
 
+function pedirSenha(obrigatoria) {
+  $("#senha-form").reset(); say("#senha-msg", "");
+  $("#senha-aviso").classList.toggle("hide", !obrigatoria);
+  $("#senha-cancelar").classList.toggle("hide", obrigatoria);
+  $("#login").classList.add("hide"); $("#app").classList.add("hide"); $("#senha").classList.remove("hide");
+}
+
 async function start() {
   const me = await api("/api/v1/me");
+  if (me.must_change_password) return pedirSenha(true);
+  $("#senha").classList.add("hide");
   const h = new Date().getHours();
   $("#who").textContent = `${h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite"}, ${me.name || me.email}`;
   const providers = await api("/api/v1/providers");
@@ -282,7 +303,7 @@ async function start() {
   show(LOADERS[location.hash.slice(1)] ? location.hash.slice(1) : "faturas");
 }
 
-function logout() { token = null; sessionStorage.removeItem("hub.token"); $("#app").classList.add("hide"); $("#login").classList.remove("hide"); }
+function logout() { token = null; sessionStorage.removeItem("hub.token"); $("#app").classList.add("hide"); $("#senha").classList.add("hide"); $("#login").classList.remove("hide"); }
 
 $("#login-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -292,6 +313,18 @@ $("#login-form").addEventListener("submit", async e => {
   start().catch(err => say("#login-msg", err.message, "bad"));
 });
 $("#sair").addEventListener("click", logout);
+$("#trocar-senha").addEventListener("click", () => pedirSenha(false));
+$("#senha-cancelar").addEventListener("click", () => { $("#senha").classList.add("hide"); $("#app").classList.remove("hide"); });
+$("#senha-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const {new_password, confirm} = form(e.target);
+  if (new_password !== confirm) return say("#senha-msg", "As duas senhas não são iguais.", "bad");
+  try {
+    await api("/api/v1/me/password", {method: "POST", json: {new_password}});
+    say("#senha-msg", "");
+    await start();
+  } catch (err) { say("#senha-msg", err.message, "bad"); }
+});
 $("#tabs").addEventListener("click", e => e.target.dataset.tab && show(e.target.dataset.tab));
 $("#f-faturas").addEventListener("submit", e => { e.preventDefault(); loadFaturas(); });
 $("#f-faturas [name=status]").innerHTML += Object.keys(STATUS).slice(0, 8).map(s => `<option value="${s}">${STATUS[s]}</option>`).join("");
