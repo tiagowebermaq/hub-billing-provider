@@ -22,6 +22,17 @@ docs/po/       PO versionado (PDF + infográfico por versão)
 ```
 
 ## Começando
+O jeito mais simples, na pasta do projeto:
+
+| | Windows (duplo clique) | Ubuntu |
+|---|---|---|
+| Preparar (uma vez, ou após atualizar) | `iniciar.bat` | `./iniciar.sh` |
+| Rodar a aplicação | `aplicacao.bat` | `./aplicacao.sh` |
+
+`iniciar` cria o ambiente Python, instala as dependências, gera o `.env` com segredos novos, sobe RabbitMQ, Redis e
+PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API (http://localhost:8000/docs) e os
+5 workers. Precisa de Python 3.12+ e Docker Desktop.
+
 ## Testes
 Os testes unitários rodam sem RabbitMQ, Redis ou PostgreSQL (usam simulações), nos três ambientes:
 
