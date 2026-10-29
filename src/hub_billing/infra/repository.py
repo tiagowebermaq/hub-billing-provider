@@ -88,6 +88,8 @@ provider_sessions = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+SCHEMA_LOCK_ID = 7_041_983  # número qualquer, fixo: identifica a trava de criação das tabelas do hub
+
 collection_runs = Table(
     "collection_runs", metadata,
     Column("id", String(64), primary_key=True),  # message_id do collect.request
@@ -157,11 +159,15 @@ class Repository:
         return cls(make_engine(url), SecretBox(encryption_key))
 
     def create_schema(self) -> None:
-        metadata.create_all(self.engine)
-        # Bancos criados antes do cadastro do imóvel/titular não têm a coluna registry.
-        columns = {c["name"] for c in inspect(self.engine).get_columns("account_links")}
-        if "registry" not in columns:
-            with self.engine.begin() as conn:
+        """Cria as tabelas que faltam. A API e os 5 workers sobem juntos e todos chamam isto: no PostgreSQL, uma
+        trava (advisory lock) faz um de cada vez, senão dois tentam criar a mesma tabela e um deles cai."""
+        with self.engine.begin() as conn:
+            if conn.dialect.name == "postgresql":
+                conn.exec_driver_sql(f"SELECT pg_advisory_xact_lock({SCHEMA_LOCK_ID})")
+            metadata.create_all(conn)
+            # Bancos criados antes do cadastro do imóvel/titular não têm a coluna registry.
+            columns = {c["name"] for c in inspect(conn).get_columns("account_links")}
+            if "registry" not in columns:
                 conn.exec_driver_sql("ALTER TABLE account_links ADD COLUMN registry JSON")
 
     # Vínculos conta -> imóvel -------------------------------------------------------------
