@@ -31,9 +31,12 @@ O jeito mais simples, na pasta do projeto:
 
 `iniciar` cria o ambiente Python, instala as dependências, gera o `.env` com segredos novos, sobe RabbitMQ, Redis e
 PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API e os
-5 workers e abre o painel de administração em http://localhost:8000/painel (faturas, importação de PDF, contas e
-imóveis, lotes, sessões dos portais e coleta). A documentação da API fica em http://localhost:8000/docs. Precisa de
+5 workers e abre o painel de administração em http://localhost:8010/painel (faturas, importação de PDF, contas e
+imóveis, lotes, sessões dos portais e coleta). A documentação da API fica em http://localhost:8010/docs. Precisa de
 Python 3.12+ e Docker Desktop.
+
+O hub usa a porta 8010 para não conflitar com outros projetos na 8000. Para usar outra, defina `HUB_PORT`
+antes de rodar `aplicacao` (ex.: `set HUB_PORT=8020` no Windows). Se a porta estiver ocupada, o script avisa e para.
 
 ## Testes
 Os testes unitários rodam sem RabbitMQ, Redis ou PostgreSQL (usam simulações), nos três ambientes:
@@ -50,7 +53,7 @@ ubuntu-latest e windows-latest (Python 3.12 e 3.13) e dentro do container.
 Ubuntu:
 ```
 make install && make test
-make api          # http://localhost:8000/docs
+make api          # http://localhost:8010/docs
 make up           # sobe tudo no Docker
 ```
 Windows (PowerShell):
@@ -68,7 +71,7 @@ Enquanto o meio de coleta automática de cada concessionária não é definido (
 upload da fatura em PDF, que serve para CPFL/RGE, Aegea/Corsan e Vivo:
 ```
 curl -H "Authorization: Bearer $TOKEN" -F provider=cpfl -F distributor=rge -F file=@fatura.pdf \
-     http://localhost:8000/api/v1/bills/import
+     http://localhost:8010/api/v1/bills/import
 ```
 O hub lê a linha digitável (valida os dígitos verificadores FEBRABAN e tira dela o valor), o vencimento, a competência
 e o número da conta. `account_number` e `reference_month` podem ser enviados para corrigir a leitura. Divergências
