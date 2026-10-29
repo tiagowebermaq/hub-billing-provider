@@ -75,6 +75,8 @@ class CpflAdapter(ProviderAdapter):
 
     async def resume(self, data: dict[str, Any]) -> ProviderSession:
         session = ProviderSession(provider=self.code, data=dict(data))
+        if data.get("site") == "agencia-virtual":  # site novo: sessão em cookies, a coleta por ele ainda não existe
+            return session
         expiry = _token_expiry(data.get("access_token", ""))
         if expiry and expiry > datetime.now(UTC) + timedelta(minutes=2):
             return session
