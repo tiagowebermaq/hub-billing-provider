@@ -3,6 +3,6 @@
 cd "$(dirname "$0")"
 PORT="${HUB_PORT:-8010}"
 pkill -f "\.venv/bin/hub-worker" 2>/dev/null
-pkill -f "uvicorn hub_billing.api.app:create_app .*--port $PORT" 2>/dev/null
+pkill -f "uvicorn hub_billing.api.app:.*--port $PORT" 2>/dev/null
 docker compose stop
 echo "Hub parado. Para iniciar de novo: ./aplicacao.sh"

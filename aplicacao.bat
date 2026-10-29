@@ -14,7 +14,7 @@ docker compose up -d rabbitmq redis postgres || (echo [ERRO] Abra o Docker Deskt
 echo Aguardando os servicos ficarem prontos...
 timeout /t 10 /nobreak >nul
 
-start "Hub API" cmd /k .venv\Scripts\uvicorn.exe hub_billing.api.app:create_app --factory --host 127.0.0.1 --port %HUB_PORT%
+start "Hub API" cmd /k .venv\Scripts\uvicorn.exe hub_billing.api.app:create_production_app --factory --host 127.0.0.1 --port %HUB_PORT%
 for %%W in (collector normalizer grouper dispatcher webhooks) do start "Hub %%W" /min cmd /k .venv\Scripts\hub-worker.exe %%W
 
 timeout /t 5 /nobreak >nul
