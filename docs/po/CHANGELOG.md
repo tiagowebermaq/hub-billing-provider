@@ -3,6 +3,19 @@
 Formato: `## [versão] - AAAA-MM-DD - autor`, seguido dos itens alterados.
 Política: SemVer (MAJOR = visão/escopo/arquitetura, MINOR = novo requisito/provedor/épico, PATCH = correções de texto).
 
+## [1.10.0] - 2026-10-29 - Weber
+- Versão automática após 10 PRs mergeados.
+- PR #17: Painel e logins dos portais sempre no navegador do hub
+- PR #18: fix(cpfl): reconhece o login no site novo da Agência CPFL
+- PR #19: fix(login): diagnóstico sempre gravado e captura de qualquer API do portal
+- PR #20: feat(cpfl): login pelo site novo da Agência Virtual (sessão em cookies)
+- PR #21: fix(painel): abre no navegador padrão e avisa quando o hub não responde
+- PR #22: feat(cpfl): coleta das faturas pelo site novo da Agência Virtual
+- PR #23: feat(coleta): histórico das coletas no painel e coleta sem distribuidora
+- PR #24: feat(workers): logs também em arquivo (logs/worker-<nome>.log)
+- PR #25: fix(banco): API e workers criam as tabelas um de cada vez
+- PR #26: fix(api): publica no RabbitMQ de verdade
+
 ## [1.9.0] - 2026-10-29 - Weber
 - Versão automática após 16 PRs mergeados.
 - PR #1: Adapter Vivo, novo PO a cada 10 PRs e PO v1.2.0
