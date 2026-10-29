@@ -50,6 +50,18 @@ Windows (PowerShell):
 Copie `.env.example` para `.env` e troque os segredos. A conta admin é criada no primeiro boot com
 `HUB_ADMIN_EMAIL` / `HUB_ADMIN_PASSWORD` e a troca de senha é obrigatória no primeiro acesso.
 
+## Importar uma fatura (coleta disponível hoje)
+Enquanto o meio de coleta automática de cada concessionária não é definido (épico E1), as contas entram pelo
+upload da fatura em PDF, que serve para CPFL/RGE, Aegea/Corsan e Vivo:
+```
+curl -H "Authorization: Bearer $TOKEN" -F provider=cpfl -F distributor=rge -F file=@fatura.pdf \
+     http://localhost:8000/api/v1/bills/import
+```
+O hub lê a linha digitável (valida os dígitos verificadores FEBRABAN e tira dela o valor), o vencimento, a competência
+e o número da conta. `account_number` e `reference_month` podem ser enviados para corrigir a leitura. Divergências
+(valor impresso diferente do código, segmento de outra concessionária) voltam em `warnings`.
+`GET /api/v1/barcodes/{linha}` só valida uma linha digitável.
+
 ## Correlation ID
 Envie `X-Correlation-ID` (ou deixe o hub gerar). Ele volta na resposta e acompanha mensagens, logs, envio ao
 sistema de aluguéis e webhooks.

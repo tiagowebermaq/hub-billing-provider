@@ -15,11 +15,12 @@ DISTRIBUTORS = {"paulista", "piratininga", "santa-cruz", "rge"}
 class CpflAdapter(ProviderAdapter):
     """Energia: distribuidoras do grupo CPFL, incluindo RGE (Rio Grande do Sul).
 
-    O meio de coleta (API, portal, e-mail de fatura ou EDI) será definido no épico E1;
-    até lá os métodos de coleta não estão implementados.
+    Coleta disponível: importação da fatura em PDF (parse_invoice / raw_from_invoice).
+    A coleta automática (portal, API ou EDI) depende do épico E1; até lá os métodos abaixo não estão implementados.
     """
 
     utility_type = UtilityType.ENERGY
+    account_labels = ("seu código", "código da instalação", "nº da instalação", "instalação", "unidade consumidora", "uc")
 
     def __init__(self, distributor: str | None = None) -> None:
         if distributor is not None and distributor not in DISTRIBUTORS:

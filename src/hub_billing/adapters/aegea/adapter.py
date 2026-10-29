@@ -13,10 +13,12 @@ from hub_billing.domain.models import UtilityType
 class AegeaAdapter(ProviderAdapter):
     """Água e esgoto: unidades do grupo Aegea, incluindo Corsan (distributor="corsan").
 
-    O meio de coleta será definido no épico E1; até lá os métodos de coleta não estão implementados.
+    Coleta disponível: importação da fatura em PDF (parse_invoice / raw_from_invoice).
+    A coleta automática (portal, API ou EDI) depende do épico E1; até lá os métodos abaixo não estão implementados.
     """
 
     utility_type = UtilityType.WATER
+    account_labels = ("matrícula", "matricula", "código do imóvel", "inscrição")
 
     async def authenticate(self, credentials: ProviderCredentials) -> ProviderSession:
         raise NotImplementedError("E1: definir meio de coleta da Aegea/Corsan")
