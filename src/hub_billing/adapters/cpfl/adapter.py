@@ -55,7 +55,8 @@ class CpflAdapter(ProviderAdapter):
         super().__init__(distributor)
 
     def _headers(self, session: ProviderSession, auth: bool = True) -> dict[str, str]:
-        headers = {"Accept": "application/json", "Origin": "https://servicosonline.cpfl.com.br", "Referer": WEBAPP}
+        headers = {"Accept": "application/json", "Origin": session.data.get("origin") or "https://servicosonline.cpfl.com.br",
+                   "Referer": session.data.get("referer") or WEBAPP}
         if session.data.get("user_agent"):
             headers["User-Agent"] = session.data["user_agent"]
         if session.data.get("cookies"):  # cookies do Cloudflare capturados no navegador do login assistido
@@ -63,6 +64,11 @@ class CpflAdapter(ProviderAdapter):
         if auth:
             headers["Authorization"] = f"Bearer {session.data['access_token']}"
         return headers
+
+    @staticmethod
+    def _api(session: ProviderSession) -> str:
+        """API vista no login assistido (o site novo, cpfl.com.br/agencia, pode chamar outro endereço)."""
+        return str(session.data.get("api_base") or API)
 
     async def authenticate(self, credentials: ProviderCredentials) -> ProviderSession:
         raise NotImplementedError("CPFL/RGE usa login B2C com MFA: rode tools/login_portal.py cpfl")
@@ -74,7 +80,7 @@ class CpflAdapter(ProviderAdapter):
             return session
         if not data.get("refresh_token"):
             raise SessionExpired("sessão da CPFL expirada: refaça o login assistido")
-        resp = await self._client().post(f"{API}/token", headers=self._headers(session, auth=False), data={
+        resp = await self._client().post(f"{self._api(session)}/token", headers=self._headers(session, auth=False), data={
             "client_id": data.get("clientId") or CLIENT_ID, "grant_type": "refresh_token",
             "refresh_token": data["refresh_token"]})
         if resp.status_code != 200:
@@ -97,7 +103,8 @@ class CpflAdapter(ProviderAdapter):
         """Contas em aberto da instalação (historico-contas/validar-situacao)."""
         body = {"RetornarDetalhes": True, "GerarProtocolo": False,
                 **{k: account.extra.get(k) for k in _INSTALLATION_FIELDS}}
-        resp = await self._client().post(f"{API}/historico-contas/validar-situacao", json=body, headers=self._headers(session))
+        resp = await self._client().post(f"{self._api(session)}/historico-contas/validar-situacao", json=body,
+                                         headers=self._headers(session))
         if resp.status_code == 401:
             raise SessionExpired("token da CPFL recusado: refaça o login assistido")
         resp.raise_for_status()
@@ -119,7 +126,8 @@ class CpflAdapter(ProviderAdapter):
     async def download_document(self, session: ProviderSession, bill: RawBill) -> bytes:
         p = bill.payload
         inst = p.get("installation", {})
-        resp = await self._client().get(f"{API}/historico-contas/conta-completa-pdf", headers=self._headers(session, auth=False),
+        resp = await self._client().get(f"{self._api(session)}/historico-contas/conta-completa-pdf",
+                                        headers=self._headers(session, auth=False),
                                         params={"numeroContaEnergia": p.get("numeroContaEnergia"),
                                                 "codigoClasse": inst.get("CodigoClasse"),
                                                 "codEmpresaSAP": inst.get("CodEmpresaSAP"),
