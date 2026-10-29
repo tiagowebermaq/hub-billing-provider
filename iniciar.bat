@@ -11,6 +11,8 @@ tasklist /FI "IMAGENAME eq hub-worker.exe" 2>nul | find /I "hub-worker.exe" >nul
 
 echo == 1/5 Ambiente Python
 if not exist .venv\Scripts\python.exe python -m venv .venv || goto :erro
+REM Remove sobras de instalacoes interrompidas (pastas "~..."), que geram avisos "Ignoring invalid distribution".
+if exist .venv\Lib\site-packages for /d %%D in (".venv\Lib\site-packages\~*") do rmdir /s /q "%%D"
 .venv\Scripts\python.exe -m pip install --upgrade pip -q || goto :erro
 
 echo == 2/5 Dependencias
