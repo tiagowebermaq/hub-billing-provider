@@ -44,6 +44,9 @@ hub-worker = "hub_billing.workers.run:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+hub_billing = ["web/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

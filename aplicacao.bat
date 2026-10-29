@@ -15,9 +15,9 @@ start "Hub API" cmd /k .venv\Scripts\uvicorn.exe hub_billing.api.app:create_app 
 for %%W in (collector normalizer grouper dispatcher webhooks) do start "Hub %%W" /min cmd /k .venv\Scripts\hub-worker.exe %%W
 
 timeout /t 5 /nobreak >nul
-start "" http://localhost:8000/docs
+start "" http://localhost:8000/painel
 echo.
-echo Hub rodando em http://localhost:8000  (documentacao da API em /docs)
+echo Hub rodando em http://localhost:8000  (painel em /painel, documentacao da API em /docs)
 echo Login assistido nos portais:
 echo   .venv\Scripts\python.exe tools\login_portal.py cpfl --distributor rge
 echo   .venv\Scripts\python.exe tools\login_portal.py aegea --distributor corsan
