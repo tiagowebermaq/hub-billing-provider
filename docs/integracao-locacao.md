@@ -26,10 +26,17 @@ Corpo: um lote por imóvel + contrato + competência.
   "bills": [
     {"bill_id": "…", "provider": "cpfl", "distributor": "rge", "utility_type": "ENERGY", "account_number": "40012345",
      "due_date": "2026-11-20", "amount": "150.00", "consumption": "210", "consumption_unit": "kWh",
-     "barcode": "8366…", "digitable_line": "83660000001-5 …", "pix_code": null, "document_url": null}
+     "barcode": "8366…", "digitable_line": "83660000001-5 …", "pix_code": null, "document_url": null,
+     "property": {"address": "Rua das Flores, 123", "zip_code": "90010-000", "city": "Porto Alegre", "state": "RS",
+                  "category": "Residencial"},
+     "consumer": {"name": "Maria Silva", "document": "***.456.789-**", "email": "maria@example.com"}}
   ]
 }
 ```
+
+`property` (cadastro do imóvel na concessionária) e `consumer` (titular da conta) vêm da fatura e são completados
+pelo cadastro feito no hub em `PUT /api/v1/accounts/{provider}/{conta}`. Campos sem informação não são enviados, e o
+objeto inteiro é `null` quando não há nada.
 
 ## Respostas esperadas
 

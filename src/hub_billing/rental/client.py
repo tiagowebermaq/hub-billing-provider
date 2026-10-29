@@ -46,6 +46,8 @@ def to_payload(batch: BillingBatch) -> dict[str, Any]:
             "digitable_line": b.digitable_line,
             "pix_code": b.pix_code,
             "document_url": b.document_url,
+            "property": None if b.property_info is None else b.property_info.model_dump(mode="json", exclude_none=True),
+            "consumer": None if b.consumer is None else b.consumer.model_dump(mode="json", exclude_none=True),
         } for b in batch.bills],
     }
 

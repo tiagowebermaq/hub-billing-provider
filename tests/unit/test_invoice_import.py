@@ -89,3 +89,21 @@ def test_api_valida_linha_digitavel(client: TestClient, admin_headers: dict[str,
     resp = client.get(f"/api/v1/barcodes/{line}", headers=admin_headers)
     assert resp.status_code == 200 and resp.json()["amount"] == "89.90" and resp.json()["segment"] == "telecomunicações"
     assert client.get("/api/v1/barcodes/123", headers=admin_headers).status_code == 422
+
+
+def test_le_cadastro_do_imovel_e_do_titular() -> None:
+    lines = invoice_lines(make_barcode("3")) + [
+        "Nome: Maria José da Silva", "CPF: ***.456.789-**", "Endereço: Rua das Flores, 123 - Centro",
+        "Porto Alegre RS CEP 90010000", "Classe: Residencial Bifásico"]
+    parsed = get_adapter("cpfl", "rge").parse_invoice(text="\n".join(lines))
+    assert parsed.consumer == {"name": "Maria José da Silva", "document": "***.456.789-**"}
+    assert parsed.property == {"address": "Rua das Flores, 123 - Centro", "zip_code": "90010-000", "category": "Residencial"}
+    bill = get_adapter("cpfl", "rge").to_canonical(get_adapter("cpfl", "rge").raw_from_invoice(parsed))
+    assert bill.consumer is not None and bill.consumer.document == "***.456.789-**"
+    assert bill.property_info is not None and bill.property_info.zip_code == "90010-000"
+
+
+def test_cadastro_ausente_e_codigo_do_cliente_nao_viram_nome() -> None:
+    parsed = parse_text("\n".join(invoice_lines(make_barcode("2"), "Código do cliente", "778899")) + "\nCNPJ: 12.345.678/0001-90")
+    assert parsed.consumer == {"document": "12.345.678/0001-90"}
+    assert parse_text("\n".join(invoice_lines(make_barcode("2")))).property == {}

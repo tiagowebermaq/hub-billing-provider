@@ -36,6 +36,36 @@ class BatchStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class PropertyInfo(BaseModel):
+    """Cadastro do imóvel na concessionária (unidade consumidora / matrícula)."""
+
+    address: str | None = None
+    zip_code: str | None = None
+    city: str | None = None
+    state: str | None = None
+    category: str | None = None
+    connection_type: str | None = None
+    meter: str | None = None
+    status: str | None = None
+
+
+class ConsumerInfo(BaseModel):
+    """Titular da conta na concessionária."""
+
+    name: str | None = None
+    document: str | None = None
+    holder_since: date | None = None
+    email: str | None = None
+
+
+def fill_gaps[T: BaseModel](primary: T | None, fallback: T | None) -> T | None:
+    """Junta dois cadastros: o primeiro vale, o segundo só completa os campos vazios."""
+    if primary is None or fallback is None:
+        return primary or fallback
+    merged = {k: v if v is not None else getattr(fallback, k) for k, v in primary}
+    return type(primary).model_validate(merged)
+
+
 class Bill(BaseModel):
     """Conta no modelo canônico, independente do provedor."""
 
@@ -56,6 +86,8 @@ class Bill(BaseModel):
     digitable_line: str | None = None
     pix_code: str | None = None
     document_url: str | None = None
+    property_info: PropertyInfo | None = None
+    consumer: ConsumerInfo | None = None
     status: BillStatus = BillStatus.NORMALIZED
     correlation_id: str | None = None
 

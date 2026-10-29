@@ -51,3 +51,15 @@ def test_consulta_nao_fecha_lote(client: TestClient, admin_headers: dict[str, st
     headers = login(client, "carla@example.com", "senha-forte-1")
     assert client.get("/api/v1/bills", headers=headers).status_code == 200
     assert client.post("/api/v1/batches/close", json={"reference_month": "2026-10"}, headers=headers).status_code == 403
+
+
+def test_vinculo_guarda_cadastro_do_imovel_e_titular(client: TestClient, admin_headers: dict[str, str]) -> None:
+    seed(client, "mat-5", None)
+    body = {"property_id": "ap-5", "property": {"address": "Rua B, 5", "zip_code": "90000-000", "category": "Residencial"},
+            "consumer": {"name": "Carla Lima", "document": "123.456.789-00", "email": "carla@example.com"}}
+    resp = client.put("/api/v1/accounts/aegea/mat-5", json=body, headers=admin_headers)
+    assert resp.status_code == 200 and resp.json()["consumer"]["name"] == "Carla Lima"
+    [link] = client.get("/api/v1/accounts", headers=admin_headers).json()
+    assert link["registry"]["property"]["zip_code"] == "90000-000"
+    [bill] = client.get("/api/v1/bills", headers=admin_headers).json()
+    assert bill["consumer"]["document"] == "123.456.789-00" and bill["property_info"]["address"] == "Rua B, 5"

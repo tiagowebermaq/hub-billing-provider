@@ -20,7 +20,7 @@ from hub_billing.core.config import Settings, get_settings
 from hub_billing.core.security import create_token, hash_password
 from hub_billing.domain.barcode import BarcodeError, from_digitable_line
 from hub_billing.domain.grouping import group_bills
-from hub_billing.domain.models import BatchStatus, Bill, BillStatus
+from hub_billing.domain.models import BatchStatus, Bill, BillStatus, ConsumerInfo, PropertyInfo
 from hub_billing.domain.permissions import ROLE_DEFAULTS, Permission
 from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
@@ -84,6 +84,8 @@ class PermissionsIn(BaseModel):
 class AccountLinkIn(BaseModel):
     property_id: str
     contract_id: str | None = None
+    property: PropertyInfo | None = None
+    consumer: ConsumerInfo | None = None
 
 
 class ProviderSessionIn(BaseModel):
@@ -247,11 +249,15 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
     @app.put("/api/v1/accounts/{provider}/{account_number}")
     async def link_account(provider: str, account_number: str, body: AccountLinkIn,
                            _: Annotated[User, Depends(require(Permission.ACCOUNTS_WRITE))]) -> dict[str, object]:
-        """Vincula a conta da concessionária (UC, matrícula, código do cliente) a um imóvel/contrato."""
+        """Vincula a conta da concessionária (UC, matrícula, código do cliente) a um imóvel/contrato.
+
+        `property` e `consumer` guardam o cadastro do imóvel e do titular; completam o que a fatura não trouxer.
+        """
         if provider not in available():
             raise HTTPException(422, f"provedor desconhecido: {provider}")
-        released = db.link_account(provider, account_number, body.property_id, body.contract_id)
-        return {"provider": provider, "account_number": account_number, **body.model_dump(),
+        released = db.link_account(provider, account_number, body.property_id, body.contract_id,
+                                   body.property, body.consumer)
+        return {"provider": provider, "account_number": account_number, **body.model_dump(mode="json"),
                 "bills_released": released}
 
     @app.get("/api/v1/accounts")
