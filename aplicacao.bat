@@ -1,6 +1,6 @@
 @echo off
 REM Hub Billing Provider - inicia a aplicação: infraestrutura no Docker, API e os 5 workers, cada um na sua janela.
-REM Para parar: feche as janelas "Hub ..." e, se quiser, rode "docker compose stop".
+REM Para parar: rode parar.bat.
 setlocal
 cd /d "%~dp0"
 REM Porta do hub: 8010 (a 8000 costuma estar em uso por outros projetos). Para trocar: set HUB_PORT=8020 antes de rodar.

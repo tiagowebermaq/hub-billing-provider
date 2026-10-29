@@ -7,6 +7,8 @@ cd /d "%~dp0"
 where python >nul 2>nul || (echo [ERRO] Python 3.12+ nao encontrado. Instale em https://www.python.org/downloads/ & goto :fim)
 where docker >nul 2>nul || (echo [ERRO] Docker Desktop nao encontrado. Instale e abra o Docker Desktop. & goto :fim)
 
+tasklist /FI "IMAGENAME eq hub-worker.exe" 2>nul | find /I "hub-worker.exe" >nul && (echo [ERRO] O hub esta rodando. Rode parar.bat e depois iniciar.bat de novo. & goto :fim)
+
 echo == 1/5 Ambiente Python
 if not exist .venv\Scripts\python.exe python -m venv .venv || goto :erro
 .venv\Scripts\python.exe -m pip install --upgrade pip -q || goto :erro
