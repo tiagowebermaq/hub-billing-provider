@@ -26,6 +26,7 @@
   .card .s { font-size:12.5px; color:var(--muted); margin-top:3px; line-height:1.35; }
   .energy { border-left:6px solid var(--amber); }
   .water { border-left:6px solid var(--brand); }
+  .telecom { border-left:6px solid var(--red); }
   .adapter { border-left:6px solid var(--violet); }
   .out { border-left:6px solid var(--brand2); }
   .arrow { display:flex; align-items:center; justify-content:center; }
@@ -72,26 +73,26 @@
 <header>
   <div>
     <h1>Hub Billing Provider</h1>
-    <p>Coleta, agrupa e entrega contas de energia (CPFL / RGE) e água (Aegea / Corsan) ao sistema de aluguéis</p>
+    <p>Coleta, agrupa e entrega contas de energia (CPFL / RGE), água (Aegea / Corsan) e telecom (Vivo) ao sistema de aluguéis</p>
   </div>
   <div class="ver"><b>PO v{{VERSION}}</b><div>{{DATE}}</div></div>
 </header>
 
 <section class="flow">
   <div class="col">
-    <h2>Concessionárias</h2>
+    <h2>Fornecedores</h2>
     <div class="card energy"><div class="t">CPFL</div><div class="s">Energia · Unidade Consumidora</div></div>
     <div class="card energy"><div class="t">RGE</div><div class="s">Energia · grupo CPFL</div></div>
-    <div class="card water"><div class="t">Corsan</div><div class="s">Água · grupo Aegea · Matrícula</div></div>
-    <div class="card water"><div class="t">Aegea</div><div class="s">Água · demais unidades</div></div>
+    <div class="card water"><div class="t">Aegea / Corsan</div><div class="s">Água · Matrícula</div></div>
+    <div class="card telecom"><div class="t">Vivo</div><div class="s">Telecom · Código do cliente</div></div>
   </div>
   <div class="arrow"><svg viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6" stroke="#0f5c8c" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="col">
     <h2>Adapters</h2>
     <div class="card adapter"><div class="t">adapter cpfl</div><div class="s">CPFL + RGE · autentica, lista UCs, baixa faturas</div></div>
     <div class="card adapter"><div class="t">adapter aegea</div><div class="s">Aegea + Corsan · matrículas de água</div></div>
+    <div class="card adapter"><div class="t">adapter vivo</div><div class="s">Vivo · contas de telecom</div></div>
     <div class="card adapter" style="border-style:dashed"><div class="t">+ novo provedor</div><div class="s">Implementa ProviderAdapter, sem mudar o núcleo</div></div>
-    <div class="card"><div class="s"><b>Resiliência:</b> timeout · retry com backoff · circuit breaker · rate limit no Redis</div></div>
   </div>
   <div class="arrow"><svg viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6" stroke="#0f5c8c" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="hub">
@@ -157,7 +158,7 @@
       <li><b>1</b> Fundação · descoberta dos provedores</li>
       <li><b>2</b> Usuários/RBAC · cadastros</li>
       <li><b>3</b> Mensageria · adapter CPFL/RGE</li>
-      <li><b>4–5</b> Adapter Aegea/Corsan · agrupamento e envio</li>
+      <li><b>4–5</b> Adapters Aegea/Corsan e Vivo · agrupamento e envio</li>
       <li><b>6</b> API pública e webhooks</li>
       <li><b>7–8</b> Painel admin · go-live</li>
     </ul>
@@ -166,10 +167,10 @@
     <h3>Versionamento do PO</h3>
     <ul>
       <li>SemVer <b>MAJOR.MINOR.PATCH</b></li>
-      <li>Toda alteração gera <b>novo PDF + novo infográfico</b></li>
+      <li>A cada <b>10 PRs</b>: <b>novo PDF + novo infográfico</b> (automático)</li>
       <li><code>docs/po/vX.Y.Z/</code> · nunca sobrescreve</li>
       <li>Salvo no PC e no GitHub (tag <code>po-vX.Y.Z</code>)</li>
-      <li><code>python tools/build_po.py --bump minor</code></li>
+      <li>GitHub Action <code>po-release</code></li>
     </ul>
   </div>
 </section>

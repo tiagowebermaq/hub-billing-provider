@@ -1,6 +1,6 @@
 # Hub Billing Provider
 
-Hub que coleta, agrupa e envia ao sistema de aluguéis as contas recorrentes de energia (CPFL / RGE) e água (Aegea / Corsan).
+Hub que coleta, agrupa e envia ao sistema de aluguéis as contas recorrentes de energia (CPFL / RGE), água (Aegea / Corsan) e telecom (Vivo).
 Expõe API REST e webhooks para sistemas acoplados. Requisitos completos no PO: `docs/po/`.
 
 ## Stack
@@ -11,7 +11,7 @@ Python 3.12+ · FastAPI · RabbitMQ (aio-pika) · Redis · PostgreSQL · Docker 
 src/hub_billing/
   core/        config, logs JSON, Correlation ID, segurança (Argon2, JWT, cifragem)
   domain/      modelo canônico de conta, agrupamento em lotes, permissões
-  adapters/    interface ProviderAdapter + cpfl (CPFL/RGE), aegea (Aegea/Corsan), fake
+  adapters/    interface ProviderAdapter + cpfl (CPFL/RGE), aegea (Aegea/Corsan), vivo (Vivo), fake
   messaging/   envelope de mensagens, topologia RabbitMQ (retry 30s/5m/1h + DLQ), cliente aio-pika
   infra/       idempotência no Redis
   webhooks/    assinatura HMAC-SHA256 e entrega
@@ -55,7 +55,12 @@ Envie `X-Correlation-ID` (ou deixe o hub gerar). Ele volta na resposta e acompan
 sistema de aluguéis e webhooks.
 
 ## PO versionado
-Toda alteração gera um novo PDF e um novo infográfico em `docs/po/vX.Y.Z/` (SemVer, nunca sobrescreve):
+A cada **10 PRs mergeados** na `main`, a GitHub Action `po-release` gera automaticamente um novo PDF e um novo
+infográfico em `docs/po/vX.Y.Z/` (versão MINOR, com os títulos dos PRs no changelog), cria a tag `po-vX.Y.Z` e envia.
+Versões nunca são sobrescritas. Para conferir quantos PRs faltam ou gerar manualmente:
+```
+python tools/build_po.py --every-prs 10                                     # mostra quantos PRs faltam
+```
 ```
 python tools/build_po.py --bump minor -m "Descrição da alteração" --git    # Ubuntu
 .\scripts\po.ps1 --bump minor -m "Descrição da alteração" --git            # Windows
@@ -64,5 +69,5 @@ python tools/build_po.py --bump minor -m "Descrição da alteração" --git    #
 
 ## Estado atual (sprint 1)
 Pronto: fundação, Correlation ID, domínio, agrupamento, permissões, API de usuários/coleta, topologia de filas,
-idempotência e webhooks assinados, com testes. Pendente: meio de coleta real da CPFL/RGE e Aegea/Corsan (épico E1),
+idempotência e webhooks assinados, com testes. Pendente: meio de coleta real da CPFL/RGE, Aegea/Corsan e Vivo (épico E1),
 persistência em PostgreSQL (E2/E3) e envio ao sistema de aluguéis (E7, depende do contrato da API dele).

@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from hub_billing.domain.models import Bill, UtilityType
 
+CONSUMPTION_UNITS = {UtilityType.ENERGY: "kWh", UtilityType.WATER: "m3", UtilityType.TELECOM: None}
+
 
 class ProviderCredentials(BaseModel):
     login: str
@@ -73,7 +75,7 @@ class ProviderAdapter(ABC):
             amount=raw.amount,
             issue_date=p.get("issue_date"),
             consumption=p.get("consumption"),
-            consumption_unit="kWh" if self.utility_type is UtilityType.ENERGY else "m3",
+            consumption_unit=CONSUMPTION_UNITS[self.utility_type],
             barcode=p.get("barcode"),
             digitable_line=p.get("digitable_line"),
             pix_code=p.get("pix_code"),

@@ -84,4 +84,4 @@ def test_fake_provider_hidden_outside_dev(settings, publisher) -> None:  # type:
 
     prod = TestClient(create_app(settings.model_copy(update={"env": "prod"}), publisher))
     providers = prod.get("/api/v1/providers", headers=login(prod, "admin@hub.local", "admin-pass")).json()
-    assert "fake" not in providers and {"cpfl", "aegea"} <= set(providers)
+    assert "fake" not in providers and {"cpfl", "aegea", "vivo"} <= set(providers)

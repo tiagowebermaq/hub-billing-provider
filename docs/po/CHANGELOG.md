@@ -3,6 +3,11 @@
 Formato: `## [versão] - AAAA-MM-DD - autor`, seguido dos itens alterados.
 Política: SemVer (MAJOR = visão/escopo/arquitetura, MINOR = novo requisito/provedor/épico, PATCH = correções de texto).
 
+## [1.2.0] - 2026-10-28 - Weber
+- Inclui a Vivo (telecom) como fornecedor de contas de consumo, com adapter vivo e tipo TELECOM.
+- Regra de versionamento: novo PO (PDF + infográfico) a cada 10 PRs mergeados na main, gerado pela GitHub Action po-release.
+- Testes ampliados para 63 (adapter Vivo e contagem de PRs).
+
 ## [1.1.0] - 2026-10-25 - Weber
 - Testes unitários ampliados (59 testes, cobertura 98%), incluindo RabbitMQ simulado, logs, usuários e gerador do PO.
 - Testes executáveis em Docker (estágio test e serviço tests no Compose), Ubuntu e Windows, com scripts para cada ambiente.

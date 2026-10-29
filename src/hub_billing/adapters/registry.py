@@ -30,4 +30,4 @@ def available() -> list[str]:
 
 def load_builtin() -> None:
     """Importa os adapters embarcados para que se registrem."""
-    from hub_billing.adapters import aegea, cpfl, fake  # noqa: F401
+    from hub_billing.adapters import aegea, cpfl, fake, vivo  # noqa: F401
