@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 import jwt
 
 from hub_billing.adapters.base import (
@@ -12,6 +13,7 @@ from hub_billing.adapters.base import (
     RawBill,
     SessionExpired,
 )
+from hub_billing.adapters.cpfl import agencia_virtual as av
 from hub_billing.adapters.registry import register
 from hub_billing.collection.values import parse_date, parse_money, parse_reference
 from hub_billing.domain.models import UtilityType
@@ -75,7 +77,7 @@ class CpflAdapter(ProviderAdapter):
 
     async def resume(self, data: dict[str, Any]) -> ProviderSession:
         session = ProviderSession(provider=self.code, data=dict(data))
-        if data.get("site") == "agencia-virtual":  # site novo: sessão em cookies, a coleta por ele ainda não existe
+        if data.get("site") == "agencia-virtual" and not data.get("access_token"):  # site novo: sessão em cookies
             return session
         expiry = _token_expiry(data.get("access_token", ""))
         if expiry and expiry > datetime.now(UTC) + timedelta(minutes=2):
@@ -90,7 +92,24 @@ class CpflAdapter(ProviderAdapter):
         session.data.update(resp.json())
         return session
 
+    def _site(self, session: ProviderSession) -> bool:
+        return session.data.get("site") == "agencia-virtual" and not session.data.get("access_token")
+
+    async def _site_get(self, session: ProviderSession, url: str) -> httpx.Response:
+        headers = {k: v for k, v in self._headers(session, auth=False).items() if k in ("User-Agent", "Cookie")}
+        resp = await self._client().get(url, headers=headers, follow_redirects=True)
+        if resp.status_code in (401, 403):
+            raise SessionExpired(f"a CPFL recusou a sessão (HTTP {resp.status_code}): refaça o login assistido")
+        resp.raise_for_status()
+        return resp
+
     async def list_accounts(self, session: ProviderSession) -> list[ProviderAccount]:
+        if self._site(session):
+            resp = await self._site_get(session, av.PAGINA_INICIAL)
+            if av.is_login_page(str(resp.url), resp.text):
+                raise SessionExpired("sessão da CPFL expirada: refaça o login assistido")
+            conta = av.parse_conta_atual(resp.text)
+            return [ProviderAccount(account_number=conta["instalacao"], extra={"conta_atual": conta})] if conta else []
         found: dict[str, ProviderAccount] = {}
         candidates = [_as_obj(session.data.get("Instalacao")), *(_as_obj(session.data.get("ListaInstalacoes")) or [])]
         for inst in candidates:
@@ -102,7 +121,15 @@ class CpflAdapter(ProviderAdapter):
     async def fetch_bills(
         self, session: ProviderSession, account: ProviderAccount, reference: str | None = None
     ) -> list[RawBill]:
-        """Contas em aberto da instalação (historico-contas/validar-situacao)."""
+        """Contas em aberto da instalação (historico-contas/validar-situacao); no site novo, a conta atual da UC."""
+        if "conta_atual" in account.extra:
+            c = account.extra["conta_atual"]
+            if reference and c["referencia"] != reference:
+                return []
+            return [RawBill(provider=self.code, account_number=account.account_number, reference_month=c["referencia"],
+                            due_date=parse_date(c["vencimento"]), amount=parse_money(c["valor"]),
+                            payload={"source": "agencia-virtual", "digitable_line": c["codigo_barras"],
+                                     "status": c["situacao"], "numeroContaEnergia": c["numero_conta"]})]
         body = {"RetornarDetalhes": True, "GerarProtocolo": False,
                 **{k: account.extra.get(k) for k in _INSTALLATION_FIELDS}}
         resp = await self._client().post(f"{self._api(session)}/historico-contas/validar-situacao", json=body,
@@ -127,6 +154,11 @@ class CpflAdapter(ProviderAdapter):
 
     async def download_document(self, session: ProviderSession, bill: RawBill) -> bytes:
         p = bill.payload
+        if p.get("source") == "agencia-virtual":
+            resp = await self._site_get(session, av.CONTA_COMPLETA)
+            if "pdf" not in resp.headers.get("content-type", ""):
+                raise ValueError("a CPFL não devolveu o PDF da conta completa")
+            return resp.content
         inst = p.get("installation", {})
         resp = await self._client().get(f"{self._api(session)}/historico-contas/conta-completa-pdf",
                                         headers=self._headers(session, auth=False),
