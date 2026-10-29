@@ -76,10 +76,10 @@ class UserStore:
         self.save(admin)
         return admin
 
-    def add(self, email: str, password: str, name: str, roles: set[str]) -> User:
+    def add(self, email: str, password: str, name: str, roles: set[str], active: bool = True) -> User:
         if self.by_email(email):
             raise ValueError("e-mail já cadastrado")
-        user = User(email=email, password_hash=hash_password(password), name=name, roles=roles)
+        user = User(email=email, password_hash=hash_password(password), name=name, roles=roles, active=active)
         with self.engine.begin() as conn:
             conn.execute(insert(users).values(id=user.id, **_row(user)))
         return user

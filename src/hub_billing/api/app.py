@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from importlib.resources import files
@@ -72,6 +73,20 @@ class UserOut(BaseModel):
         return cls(id=u.id, email=u.email, name=u.name, is_admin=u.is_admin, active=u.active,
                    must_change_password=u.must_change_password,
                    roles=u.roles, permissions=sorted(p.value for p in u.permissions))
+
+
+class SignupIn(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+class StatusIn(BaseModel):
+    active: bool
+
+
+class TempPasswordOut(BaseModel):
+    temporary_password: str
 
 
 class PasswordIn(BaseModel):
@@ -170,9 +185,25 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
                     cfg: Annotated[Settings, Depends(get_app_settings)]) -> TokenOut:
         user = store.authenticate(form.username, form.password)
         if user is None:
+            pending = store.by_email(form.username)
+            if pending and not pending.active and verify_password(form.password, pending.password_hash):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "cadastro aguardando aprovação do administrador")
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "credenciais inválidas")
         token = create_token(user.id, cfg.jwt_secret, cfg.jwt_expire_minutes, cfg.jwt_algorithm)
         return TokenOut(access_token=token, must_change_password=user.must_change_password)
+
+    @app.post("/api/v1/auth/signup", status_code=201)
+    async def signup(body: SignupIn, store: Annotated[UserStore, Depends(get_store)]) -> dict[str, str]:
+        """Pedido de acesso: a conta nasce inativa e sem perfis, até o admin aprovar no painel (aba Usuários)."""
+        if len(body.password) < 10:
+            raise HTTPException(422, "a senha precisa de ao menos 10 caracteres")
+        if not body.name.strip():
+            raise HTTPException(422, "informe o seu nome")
+        try:
+            store.add(body.email, body.password, body.name.strip(), set(), active=False)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        return {"detail": "cadastro enviado; aguarde a aprovação do administrador"}
 
     @app.get("/api/v1/me", response_model=UserOut)
     async def me(user: Annotated[User, Depends(current_user)]) -> UserOut:
@@ -204,6 +235,34 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
             return UserOut.of(store.add(body.email, body.password, body.name, body.roles))
         except ValueError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    def managed_user(store: UserStore, user_id: str) -> User:
+        user = store.get(user_id)
+        if user is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "usuário não encontrado")
+        if user.is_admin:
+            raise HTTPException(status.HTTP_409_CONFLICT, "o admin é alterado pelo .env e pelo resetar-senha.bat")
+        return user
+
+    @app.patch("/api/v1/users/{user_id}/status", response_model=UserOut)
+    async def set_status(user_id: str, body: StatusIn,
+                         _: Annotated[User, Depends(require(Permission.USERS_MANAGE))],
+                         store: Annotated[UserStore, Depends(get_store)]) -> UserOut:
+        """Aprova (ativa) ou bloqueia um usuário."""
+        user = managed_user(store, user_id)
+        user.active = body.active
+        store.save(user)
+        return UserOut.of(user)
+
+    @app.post("/api/v1/users/{user_id}/reset-password", response_model=TempPasswordOut)
+    async def reset_password(user_id: str, _: Annotated[User, Depends(require(Permission.USERS_MANAGE))],
+                             store: Annotated[UserStore, Depends(get_store)]) -> TempPasswordOut:
+        """Gera uma senha temporária, mostrada uma vez ao admin; o usuário troca no próximo acesso."""
+        user = managed_user(store, user_id)
+        temporary = secrets.token_urlsafe(9)
+        user.password_hash, user.must_change_password = hash_password(temporary), True
+        store.save(user)
+        return TempPasswordOut(temporary_password=temporary)
 
     @app.patch("/api/v1/users/{user_id}/permissions", response_model=UserOut)
     async def set_permissions(user_id: str, body: PermissionsIn,

@@ -109,3 +109,40 @@ def test_password_and_users_survive_restart(tmp_path, settings) -> None:  # type
     nova = login(reiniciado, "admin@hub.local", "nova-senha-forte")
     assert reiniciado.get("/api/v1/me", headers=nova).json()["must_change_password"] is False
     assert login(reiniciado, "ana@example.com", "senha-ana-123")
+
+
+def test_cadastro_aguarda_aprovacao_do_admin(client: TestClient, admin_headers: dict[str, str]) -> None:
+    novo = {"name": "Rita", "email": "rita@example.com", "password": "senha-rita-123"}
+    assert client.post("/api/v1/auth/signup", json={**novo, "password": "curta"}).status_code == 422
+    assert client.post("/api/v1/auth/signup", json={**novo, "name": " "}).status_code == 422
+    assert client.post("/api/v1/auth/signup", json=novo).status_code == 201
+    assert client.post("/api/v1/auth/signup", json=novo).status_code == 409
+
+    login_rita = {"username": "rita@example.com", "password": "senha-rita-123"}
+    resp = client.post("/api/v1/auth/login", data=login_rita)
+    assert resp.status_code == 403 and "aprovação" in resp.json()["detail"]
+    assert client.post("/api/v1/auth/login", data={**login_rita, "password": "errada"}).status_code == 401
+
+    rita = next(u for u in client.get("/api/v1/users", headers=admin_headers).json() if u["email"] == "rita@example.com")
+    assert rita["active"] is False and rita["roles"] == []
+    assert client.patch(f"/api/v1/users/{rita['id']}/status", json={"active": True}, headers=admin_headers).json()["active"]
+    assert client.post("/api/v1/auth/login", data=login_rita).status_code == 200
+
+
+def test_admin_redefine_senha_de_usuario(client: TestClient, admin_headers: dict[str, str]) -> None:
+    client.post("/api/v1/users", headers=admin_headers,
+                json={"email": "leo@example.com", "name": "Leo", "password": "senha-leo-123", "roles": ["consulta"]})
+    users = client.get("/api/v1/users", headers=admin_headers).json()
+    leo = next(u for u in users if u["email"] == "leo@example.com")
+    admin = next(u for u in users if u["is_admin"])
+
+    temp = client.post(f"/api/v1/users/{leo['id']}/reset-password", headers=admin_headers).json()["temporary_password"]
+    resp = client.post("/api/v1/auth/login", data={"username": "leo@example.com", "password": temp})
+    assert resp.status_code == 200 and resp.json()["must_change_password"] is True
+
+    assert client.post(f"/api/v1/users/{admin['id']}/reset-password", headers=admin_headers).status_code == 409
+    assert client.patch(f"/api/v1/users/{admin['id']}/status", json={"active": False},
+                        headers=admin_headers).status_code == 409
+    assert client.patch("/api/v1/users/nao-existe/status", json={"active": True}, headers=admin_headers).status_code == 404
+    consulta = login(client, "leo@example.com", temp)
+    assert client.patch(f"/api/v1/users/{leo['id']}/status", json={"active": True}, headers=consulta).status_code == 403
