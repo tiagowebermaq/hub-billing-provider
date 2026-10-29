@@ -97,6 +97,20 @@ async def test_cpfl_renova_token_e_expira() -> None:
             await adapter.download_document(session, raw)
 
 
+@respx.mock
+async def test_cpfl_usa_api_vista_no_login() -> None:
+    nova = "https://api.cpfl.com.br/agencia-webapi/api"
+    validar = respx.post(f"{nova}/historico-contas/validar-situacao").mock(
+        return_value=httpx.Response(200, json={"ContasAberto": []}))
+    data = {**cpfl_session(), "api_base": nova, "origin": "https://www.cpfl.com.br",
+            "referer": "https://www.cpfl.com.br/agencia/"}
+    async with httpx.AsyncClient() as http:
+        adapter = get_adapter("cpfl", "rge").use(http)
+        session = await adapter.resume(data)
+        assert await adapter.fetch_bills(session, ProviderAccount(account_number="1", extra=INSTALACAO)) == []
+    assert validar.calls.last.request.headers["Origin"] == "https://www.cpfl.com.br"
+
+
 def test_cpfl_distribuidora_invalida() -> None:
     with pytest.raises(ValueError):
         get_adapter("cpfl", "xpto")

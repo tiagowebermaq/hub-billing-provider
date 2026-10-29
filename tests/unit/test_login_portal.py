@@ -10,18 +10,20 @@ import respx
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import login_portal  # noqa: E402
 
+from hub_billing.collection.portal_login import Seen, write_diagnostic  # noqa: E402
+
 
 class FakePage:
+    url = "https://www.cpfl.com.br/agencia/area-cliente/cadastro"
+
     def __init__(self, session: dict[str, str] | None = None, local: dict[str, str] | None = None) -> None:
         self.session = session or {}
         self.local = local or {}
 
     def evaluate(self, script: str) -> Any:
-        if "userSessionStorage" in script:
-            return self.session.get("userSessionStorage")
         if "userAgent" in script:
             return "Mozilla/5.0"
-        return list(self.local.items())
+        return [["session", k, v] for k, v in self.session.items()] + [["local", k, v] for k, v in self.local.items()]
 
 
 class FakeContext:
@@ -33,9 +35,41 @@ class FakeContext:
 def test_captura_cpfl() -> None:
     assert login_portal.cpfl_capture(FakePage(), FakeContext()) is None
     assert login_portal.cpfl_capture(FakePage({"userSessionStorage": "{}"}), FakeContext()) is None
-    page = FakePage({"userSessionStorage": json.dumps({"access_token": "at", "refresh_token": "rt"})})
+    sem_uc = FakePage({"userSessionStorage": json.dumps({"access_token": "at", "refresh_token": "rt"})})
+    assert login_portal.cpfl_capture(sem_uc, FakeContext()) is None  # ainda não escolheu a unidade consumidora
+    page = FakePage({"userSessionStorage": json.dumps({"access_token": "at", "refresh_token": "rt", "Instalacao": "{}"})})
     data = login_portal.cpfl_capture(page, FakeContext())
-    assert data == {"access_token": "at", "refresh_token": "rt", "user_agent": "Mozilla/5.0", "cookies": {"cf_clearance": "abc"}}
+    assert data == {"access_token": "at", "refresh_token": "rt", "Instalacao": "{}", "user_agent": "Mozilla/5.0",
+                    "cookies": {"cf_clearance": "abc"}}
+
+
+def test_captura_cpfl_site_novo_com_outra_chave() -> None:
+    page = FakePage(local={"lixo": "x", "agencia:sessao": json.dumps({"access_token": "at", "ListaInstalacoes": "[]"})})
+    data = login_portal.cpfl_capture(page, FakeContext())
+    assert data is not None and data["access_token"] == "at"
+
+
+def test_captura_cpfl_pela_rede() -> None:
+    seen = Seen()
+    seen.response("https://www.google.com/x", "GET", 200, False, dict)
+    seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False,
+                  lambda: {"access_token": "at", "Instalacao": "{}"})
+    seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False, lambda: json.loads("x"))
+    seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False, lambda: {"erro": 1})
+    seen.response("https://api.cpfl.com.br/agencia-webapi/api/token", "POST", 200, False, lambda: {"erro": 1})
+    data = login_portal.cpfl_capture(FakePage(), FakeContext(), seen)
+    assert data is not None and data["api_base"] == "https://api.cpfl.com.br/agencia-webapi/api"
+    assert data["origin"] == "https://www.cpfl.com.br" and data["referer"] == FakePage.url
+    assert seen.calls == ["POST api.cpfl.com.br/agencia-webapi/api/token 200"]
+
+
+def test_diagnostico_nao_guarda_tokens(tmp_path: Path) -> None:
+    seen = Seen()
+    seen.response("https://api.cpfl.com.br/api/token?code=segredo", "POST", 200, True, lambda: {"access_token": "at"})
+    path = write_diagnostic("cpfl", seen, ["session:userSessionStorage"], tmp_path)
+    texto = path.read_text(encoding="utf-8")
+    assert "POST api.cpfl.com.br/api/token 200 (com token)" in texto and "session:userSessionStorage" in texto
+    assert "segredo" not in texto and "at\n" not in texto
 
 
 def test_captura_aegea() -> None:
