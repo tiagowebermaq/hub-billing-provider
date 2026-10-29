@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<script>try{const t=localStorage.getItem("hub.tema");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub Billing · Painel</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1d2330;--muted:#667085;--line:#e3e6eb;--brand:#1f6feb;--brand-ink:#fff;
+--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--chip:#eef1f5;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1218;--card:#171b23;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a303b;--brand:#4c8dff;--chip:#222833;--ok:#3fb950;--warn:#d29922;--bad:#f85149;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1218;--card:#171b23;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a303b;--brand:#4c8dff;--chip:#222833;--ok:#3fb950;--warn:#d29922;--bad:#f85149;color-scheme:dark}
+.tema{font:inherit;width:36px;height:36px;border-radius:6px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer;display:inline-grid;place-items:center;padding:0}
+#login .tema{float:right}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--card);border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0}
+header .who{margin-left:auto;color:var(--muted)}
+nav{display:flex;gap:4px;padding:0 24px;background:var(--card);border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{border:0;background:none;padding:10px 14px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;font:inherit}
+nav button.on{color:var(--ink);border-bottom-color:var(--brand);font-weight:600}
+main{padding:20px 24px;max-width:1200px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 12px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.kpi b{display:block;font-size:22px;margin-top:4px}
+.kpi span{color:var(--muted);font-size:12px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:12px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+.chip{display:inline-block;padding:2px 8px;border-radius:99px;background:var(--chip);font-size:12px}
+.chip.ok{color:var(--ok)}.chip.warn{color:var(--warn)}.chip.bad{color:var(--bad)}
+form.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+input,select{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);min-width:150px}
+button.pri,button.sec{font:inherit;padding:8px 14px;border-radius:6px;cursor:pointer;border:1px solid var(--brand)}
+button.pri{background:var(--brand);color:var(--brand-ink)}
+button.sec{background:none;color:var(--brand)}
+.msg{margin-top:10px;color:var(--muted)}.msg.bad{color:var(--bad)}.msg.ok{color:var(--ok)}
+.empty{color:var(--muted);padding:12px 0}
+#login{max-width:360px;margin:12vh auto}
+#login form{flex-direction:column;align-items:stretch}
+.hide{display:none}
+@media (max-width:600px){header,nav,main{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<div id="login" class="card">
+  <button class="tema" type="button" title="Alternar modo claro/escuro"></button>
+  <h2>Hub Billing Provider</h2>
+  <form class="row" id="login-form">
+    <label>E-mail<input name="username" type="email" autocomplete="username" required></label>
+    <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="pri" type="submit">Entrar</button>
+  </form>
+  <div class="msg" id="login-msg"></div>
+</div>
+
+<div id="app" class="hide">
+  <header><h1>Hub Billing Provider</h1><span class="who" id="who"></span><button class="tema" type="button" title="Alternar modo claro/escuro"></button><button class="sec" id="sair">Sair</button></header>
+  <nav id="tabs">
+    <button data-tab="faturas" class="on">Faturas</button>
+    <button data-tab="importar">Importar fatura</button>
+    <button data-tab="contas">Contas e imóveis</button>
+    <button data-tab="lotes">Lotes</button>
+    <button data-tab="portais">Portais</button>
+  </nav>
+  <main>
+    <section data-view="faturas">
+      <div class="kpis" id="kpis"></div>
+      <div class="card">
+        <form class="row" id="f-faturas">
+          <label>Competência<input name="reference_month" type="month"></label>
+          <label>Status<select name="status"><option value="">Todos</option></select></label>
+          <button class="sec" type="submit">Filtrar</button>
+        </form>
+      </div>
+      <div class="card scroll"><table id="t-faturas"></table></div>
+    </section>
+
+    <section data-view="importar" class="hide">
+      <div class="card">
+        <h2>Importar fatura em PDF</h2>
+        <form class="row" id="f-importar">
+          <label>Concessionária<select name="provider" class="providers" required></select></label>
+          <label>Distribuidora<input name="distributor" placeholder="ex.: rge"></label>
+          <label>Conta / UC / matrícula<input name="account_number"></label>
+          <label>Competência<input name="reference_month" type="month"></label>
+          <label>Arquivo<input name="file" type="file" accept="application/pdf" required></label>
+          <button class="pri" type="submit">Importar</button>
+        </form>
+        <div class="msg" id="m-importar"></div>
+      </div>
+      <div class="card">
+        <h2>Conferir linha digitável</h2>
+        <form class="row" id="f-linha">
+          <label style="flex:1">Linha digitável (48 dígitos)<input name="line" required></label>
+          <button class="sec" type="submit">Conferir</button>
+        </form>
+        <div class="msg" id="m-linha"></div>
+      </div>
+    </section>
+
+    <section data-view="contas" class="hide">
+      <div class="card">
+        <h2>Vincular conta a imóvel</h2>
+        <form class="row" id="f-contas">
+          <label>Concessionária<select name="provider" class="providers" required></select></label>
+          <label>Conta / UC / matrícula<input name="account_number" required></label>
+          <label>Imóvel<input name="property_id" required></label>
+          <label>Contrato<input name="contract_id"></label>
+          <button class="pri" type="submit">Salvar</button>
+        </form>
+        <div class="msg" id="m-contas"></div>
+      </div>
+      <div class="card scroll"><table id="t-contas"></table></div>
+    </section>
+
+    <section data-view="lotes" class="hide">
+      <div class="card">
+        <h2>Fechar competência</h2>
+        <form class="row" id="f-fechar">
+          <label>Competência<input name="reference_month" type="month" required></label>
+          <button class="pri" type="submit">Fechar e enviar ao sistema de aluguéis</button>
+        </form>
+        <div class="msg" id="m-fechar"></div>
+      </div>
+      <div class="card scroll"><table id="t-lotes"></table></div>
+    </section>
+
+    <section data-view="portais" class="hide">
+      <div class="card">
+        <h2>Coletar agora</h2>
+        <form class="row" id="f-coleta">
+          <label>Concessionária<select name="provider" class="providers" required></select></label>
+          <label>Distribuidora<input name="distributor" placeholder="ex.: rge"></label>
+          <label>Competência<input name="reference_month" type="month"></label>
+          <button class="pri" type="submit">Iniciar coleta</button>
+        </form>
+        <div class="msg" id="m-coleta"></div>
+      </div>
+      <div class="card scroll">
+        <h2>Sessões dos portais</h2>
+        <p class="msg">O login é feito no seu PC com <code>tools/login_portal.py</code>; aqui aparecem só a validade e a última atualização.</p>
+        <table id="t-portais"></table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const STATUS = {COLLECTED:"Coletada",NORMALIZED:"Pronta",GROUPED:"Agrupada",SENT:"Enviada",ACKNOWLEDGED:"Confirmada",
+  DUPLICATE:"Duplicada",FAILED:"Falhou",MANUAL_REVIEW:"Sem imóvel",OPEN:"Aberto",READY:"Pronto",ACKED:"Confirmado"};
+const TONE = {ACKNOWLEDGED:"ok",ACKED:"ok",SENT:"ok",MANUAL_REVIEW:"warn",DUPLICATE:"warn",FAILED:"bad"};
+const TYPE = {ENERGY:"Energia",WATER:"Água",TELECOM:"Telecom"};
+const brl = v => Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const date = v => v ? new Date(v.length === 10 ? v + "T12:00:00" : v).toLocaleDateString("pt-BR") : "—";
+const when = v => v ? new Date(v).toLocaleString("pt-BR") : "—";
+const esc = v => String(v ?? "—").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const chip = s => `<span class="chip ${TONE[s] || ""}">${esc(STATUS[s] || s)}</span>`;
+const $ = s => document.querySelector(s);
+let token = sessionStorage.getItem("hub.token");
+
+async function api(path, opts = {}) {
+  const headers = {Authorization: `Bearer ${token}`, ...(opts.json ? {"Content-Type": "application/json"} : {})};
+  const res = await fetch(path, {...opts, headers, body: opts.json ? JSON.stringify(opts.json) : opts.body});
+  if (res.status === 401) { logout(); throw new Error("Sessão expirada, entre de novo."); }
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : `Erro ${res.status}`);
+  return data;
+}
+
+function table(el, cols, rows, empty) {
+  el.innerHTML = rows.length
+    ? `<thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${
+        rows.map(r => `<tr>${cols.map(c => `<td class="${c[2] || ""}">${c[1](r)}</td>`).join("")}</tr>`).join("")}</tbody>`
+    : `<tbody><tr><td class="empty">${empty}</td></tr></tbody>`;
+}
+
+function say(id, text, tone = "") { const m = $(id); m.textContent = text; m.className = `msg ${tone}`; }
+const form = f => Object.fromEntries([...new FormData(f)].filter(([, v]) => v !== "" && !(v instanceof File && !v.size)));
+
+async function loadFaturas() {
+  const q = new URLSearchParams(form($("#f-faturas")));
+  const bills = await api(`/api/v1/bills?${q}`);
+  const total = bills.reduce((s, b) => s + Number(b.amount), 0);
+  const count = s => bills.filter(b => b.status === s).length;
+  $("#kpis").innerHTML = [["Faturas", bills.length], ["Valor total", brl(total)],
+    ["Prontas para lote", count("NORMALIZED")], ["Sem imóvel vinculado", count("MANUAL_REVIEW")]]
+    .map(([k, v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join("");
+  table($("#t-faturas"), [
+    ["Concessionária", b => esc(b.distributor ? `${b.provider} · ${b.distributor}` : b.provider)],
+    ["Tipo", b => TYPE[b.utility_type] || esc(b.utility_type)],
+    ["Conta", b => esc(b.account_number)], ["Imóvel", b => esc(b.property_id)],
+    ["Competência", b => esc(b.reference_month)], ["Vencimento", b => date(b.due_date)],
+    ["Valor", b => brl(b.amount), "num"], ["Status", b => chip(b.status)],
+  ], bills, "Nenhuma fatura ainda. Importe um PDF ou inicie uma coleta.");
+}
+
+async function loadContas() {
+  table($("#t-contas"), [
+    ["Concessionária", r => esc(r.provider)], ["Conta", r => esc(r.account_number)],
+    ["Imóvel", r => esc(r.property_id)], ["Contrato", r => esc(r.contract_id)], ["Atualizado", r => when(r.updated_at)],
+  ], await api("/api/v1/accounts"), "Nenhuma conta vinculada.");
+}
+
+async function loadLotes() {
+  table($("#t-lotes"), [
+    ["Lote", r => `<code>${esc(r.id.slice(0, 8))}</code>`], ["Imóvel", r => esc(r.property_id)],
+    ["Contrato", r => esc(r.contract_id)], ["Competência", r => esc(r.reference_month)],
+    ["Status", r => chip(r.status)], ["Erro", r => esc(r.last_error)], ["Atualizado", r => when(r.updated_at)],
+    ["", r => `<button class="sec" data-resend="${esc(r.id)}">Reenviar</button>`],
+  ], await api("/api/v1/batches"), "Nenhum lote fechado.");
+}
+
+async function loadPortais() {
+  const now = Date.now();
+  table($("#t-portais"), [
+    ["Concessionária", r => esc(r.provider)], ["Distribuidora", r => esc(r.distributor || "—")],
+    ["Validade", r => when(r.expires_at)],
+    ["Situação", r => !r.expires_at || new Date(r.expires_at) > now
+      ? `<span class="chip ok">Conectado</span>` : `<span class="chip bad">Login necessário</span>`],
+    ["Atualizado", r => when(r.updated_at)],
+  ], await api("/api/v1/providers/sessions").catch(() => []), "Nenhum portal conectado ainda.");
+}
+
+const LOADERS = {faturas: loadFaturas, contas: loadContas, lotes: loadLotes, portais: loadPortais, importar: async () => {}};
+
+function show(tab) {
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  document.querySelectorAll("[data-view]").forEach(v => v.classList.toggle("hide", v.dataset.view !== tab));
+  location.hash = tab;
+  LOADERS[tab]().catch(e => console.error(e));
+}
+
+async function start() {
+  const me = await api("/api/v1/me");
+  $("#who").textContent = me.name || me.email;
+  const providers = await api("/api/v1/providers");
+  document.querySelectorAll(".providers").forEach(s => s.innerHTML = providers.map(p => `<option>${esc(p)}</option>`).join(""));
+  $("#login").classList.add("hide"); $("#app").classList.remove("hide");
+  show(LOADERS[location.hash.slice(1)] ? location.hash.slice(1) : "faturas");
+}
+
+function logout() { token = null; sessionStorage.removeItem("hub.token"); $("#app").classList.add("hide"); $("#login").classList.remove("hide"); }
+
+$("#login-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const res = await fetch("/api/v1/auth/login", {method: "POST", body: new URLSearchParams(new FormData(e.target))});
+  if (!res.ok) return say("#login-msg", "E-mail ou senha incorretos.", "bad");
+  token = (await res.json()).access_token; sessionStorage.setItem("hub.token", token);
+  start().catch(err => say("#login-msg", err.message, "bad"));
+});
+$("#sair").addEventListener("click", logout);
+$("#tabs").addEventListener("click", e => e.target.dataset.tab && show(e.target.dataset.tab));
+$("#f-faturas").addEventListener("submit", e => { e.preventDefault(); loadFaturas(); });
+$("#f-faturas [name=status]").innerHTML += Object.keys(STATUS).slice(0, 8).map(s => `<option value="${s}">${STATUS[s]}</option>`).join("");
+
+$("#f-importar").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = new FormData();
+  Object.entries(form(e.target)).forEach(([k, v]) => body.append(k, v));
+  try {
+    const r = await api("/api/v1/bills/import", {method: "POST", body});
+    say("#m-importar", `Fatura importada: ${brl(r.bill.amount)}, vence em ${date(r.bill.due_date)}.` +
+      (r.warnings.length ? ` Avisos: ${r.warnings.join("; ")}` : ""), "ok");
+  } catch (err) { say("#m-importar", err.message, "bad"); }
+});
+$("#f-linha").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    const r = await api(`/api/v1/barcodes/${encodeURIComponent(form(e.target).line.replace(/\D/g, ""))}`);
+    say("#m-linha", `Válida. Segmento ${r.segment}, valor ${r.amount ? brl(r.amount) : "não informado"}.`, "ok");
+  } catch (err) { say("#m-linha", err.message, "bad"); }
+});
+$("#f-contas").addEventListener("submit", async e => {
+  e.preventDefault();
+  const {provider, account_number, ...json} = form(e.target);
+  try {
+    const r = await api(`/api/v1/accounts/${encodeURIComponent(provider)}/${encodeURIComponent(account_number)}`, {method: "PUT", json});
+    say("#m-contas", `Conta vinculada. ${r.bills_released} fatura(s) liberada(s) para lote.`, "ok"); loadContas();
+  } catch (err) { say("#m-contas", err.message, "bad"); }
+});
+$("#f-fechar").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    const r = await api("/api/v1/batches/close", {method: "POST", json: form(e.target)});
+    say("#m-fechar", `${r.batches.length} lote(s) com ${r.bills} fatura(s) enviados. ${r.pending_manual_review} sem imóvel.`, "ok"); loadLotes();
+  } catch (err) { say("#m-fechar", err.message, "bad"); }
+});
+$("#t-lotes").addEventListener("click", async e => {
+  const id = e.target.dataset.resend; if (!id) return;
+  try { await api(`/api/v1/batches/${id}/resend`, {method: "POST"}); say("#m-fechar", "Lote reenviado.", "ok"); loadLotes(); }
+  catch (err) { say("#m-fechar", err.message, "bad"); }
+});
+$("#f-coleta").addEventListener("submit", async e => {
+  e.preventDefault();
+  try { await api("/api/v1/collections", {method: "POST", json: form(e.target)}); say("#m-coleta", "Coleta iniciada. As faturas aparecem na aba Faturas.", "ok"); }
+  catch (err) { say("#m-coleta", err.message, "bad"); }
+});
+
+const ICONE = d => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const SOL = ICONE('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
+const LUA = ICONE('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>');
+const escuro = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+function pintarTema() { document.querySelectorAll(".tema").forEach(b => { b.innerHTML = escuro() ? SOL : LUA;
+  b.setAttribute("aria-label", escuro() ? "Usar modo claro" : "Usar modo escuro"); }); }
+document.querySelectorAll(".tema").forEach(b => b.addEventListener("click", () => {
+  const t = escuro() ? "light" : "dark"; document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("hub.tema", t); } catch (e) {} pintarTema(); }));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", pintarTema);
+pintarTema();
+
+if (token) start().catch(logout);
+</script>
+</body>
+</html>

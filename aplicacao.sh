@@ -10,5 +10,5 @@ for w in collector normalizer grouper dispatcher webhooks; do
   .venv/bin/hub-worker "$w" > "logs/worker-$w.log" 2>&1 &
 done
 trap 'kill $(jobs -p) 2>/dev/null' EXIT INT TERM
-echo "Hub rodando em http://localhost:8000 (documentação em /docs). Logs dos workers em logs/."
+echo "Hub rodando em http://localhost:8000 (painel em /painel, documentação da API em /docs). Logs dos workers em logs/."
 .venv/bin/uvicorn hub_billing.api.app:create_app --factory --host 127.0.0.1 --port 8000

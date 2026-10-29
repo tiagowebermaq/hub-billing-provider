@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from importlib.resources import files
 from typing import Annotated, Any, Protocol
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 
@@ -23,6 +25,8 @@ from hub_billing.domain.permissions import ROLE_DEFAULTS, Permission
 from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
+
+PAINEL_HTML = files("hub_billing.web").joinpath("painel.html").read_text(encoding="utf-8")
 
 
 class Publisher(Protocol):
@@ -127,6 +131,15 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse("/painel")
+
+    @app.get("/painel", include_in_schema=False)
+    async def painel() -> HTMLResponse:
+        """Painel de administração: página única que usa a própria API com o token do login."""
+        return HTMLResponse(PAINEL_HTML)
 
     @app.post("/api/v1/auth/login", response_model=TokenOut)
     async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()],

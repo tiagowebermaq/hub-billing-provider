@@ -30,8 +30,10 @@ O jeito mais simples, na pasta do projeto:
 | Rodar a aplicação | `aplicacao.bat` | `./aplicacao.sh` |
 
 `iniciar` cria o ambiente Python, instala as dependências, gera o `.env` com segredos novos, sobe RabbitMQ, Redis e
-PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API (http://localhost:8000/docs) e os
-5 workers. Precisa de Python 3.12+ e Docker Desktop.
+PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API e os
+5 workers e abre o painel de administração em http://localhost:8000/painel (faturas, importação de PDF, contas e
+imóveis, lotes, sessões dos portais e coleta). A documentação da API fica em http://localhost:8000/docs. Precisa de
+Python 3.12+ e Docker Desktop.
 
 ## Testes
 Os testes unitários rodam sem RabbitMQ, Redis ou PostgreSQL (usam simulações), nos três ambientes:
