@@ -34,11 +34,12 @@ async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
         if stored is None:
             raise SessionExpired(f"nenhuma sessão salva para {provider}: faça o login assistido")
         session = await adapter.resume(stored[0])
-        repo.save_session(provider, distributor, session.data, None)
+        repo.save_session(provider, distributor, session.data, stored[1])
         accounts = await adapter.list_accounts(session)
         if p.get("account_number"):
             accounts = [a for a in accounts if a.account_number == p["account_number"]]
         raws = [raw for account in accounts for raw in await adapter.fetch_bills(session, account, p.get("reference_month"))]
+        repo.save_session(provider, distributor, session.data, stored[1])  # cookies renovados pelo portal na coleta
     except SessionExpired as exc:
         repo.record_run(env.message_id, provider, distributor, "login", message=str(exc))
         return [env.derive("collect.login_required", "collector",
