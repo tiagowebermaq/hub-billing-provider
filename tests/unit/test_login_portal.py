@@ -10,7 +10,7 @@ import respx
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import login_portal  # noqa: E402
 
-from hub_billing.collection.portal_login import Seen, storage_keys, write_diagnostic  # noqa: E402
+from hub_billing.collection.portal_login import Seen, snapshot_pages, storage_keys, write_diagnostic  # noqa: E402
 
 
 class FakePage:
@@ -107,3 +107,47 @@ def test_main_fluxo_completo(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Cap
     login_portal.main(["cpfl", "--distributor", "rge", "--email", "admin@x.com"])
     assert sent[0][3:5] == ("cpfl", "rge")
     assert "salva no hub" in capsys.readouterr().out
+
+
+class SitePage(FakePage):
+    url = "https://www.cpfl.com.br/agencia-virtual/pagina-inicial"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.visited: list[str] = []
+
+    def evaluate(self, script: str) -> Any:
+        if "querySelectorAll" in script:
+            return [["Débito e segunda via", "https://www.cpfl.com.br/agencia-virtual/debito"],
+                    ["Ver conta completa", "https://www.cpfl.com.br/quebra"]]
+        return super().evaluate(script)
+
+    def goto(self, href: str) -> None:
+        if "quebra" in href:
+            raise RuntimeError("não abriu")
+        self.visited.append(href)
+
+    def content(self) -> str:
+        return f"<html>{len(self.visited)}</html>"
+
+
+def test_captura_cpfl_site_novo_por_cookies() -> None:
+    cadastro = FakePage()  # ainda escolhendo a UC
+    assert login_portal.cpfl_capture(cadastro, FakeContext()) is None
+    data = login_portal.cpfl_capture(SitePage(), FakeContext())
+    assert data == {"site": "agencia-virtual", "home": SitePage.url, "user_agent": "Mozilla/5.0",
+                    "cookies": {"cf_clearance": "abc"}}
+
+    class SemCookies(FakeContext):
+        def cookies(self) -> list[dict[str, str]]:
+            return []
+
+    assert login_portal.cpfl_capture(SitePage(), SemCookies()) is None
+
+
+def test_guarda_paginas_do_site_novo(tmp_path: Path) -> None:
+    page = SitePage()
+    saved = snapshot_pages(page, tmp_path / "paginas")
+    assert [p.name for p in saved] == ["00-pagina-inicial.html", "01-debito-e-segunda-via.html"]
+    assert page.visited == ["https://www.cpfl.com.br/agencia-virtual/debito"]
+    assert saved[1].read_text(encoding="utf-8") == "<html>1</html>"

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -24,6 +25,16 @@ PORTALS = {
 CPFL_COOKIE_DOMAIN = "cpfl.com.br"
 LOGIN_TIMEOUT_S = 600
 DIAG_DIR = Path("logs")
+# Site novo da CPFL (cpfl.com.br/agencia-virtual): Drupal com a sessão no servidor, guardada em cookies.
+AGENCIA_VIRTUAL = "/agencia-virtual/"
+SNAPSHOT_DIR = DIAG_DIR / "cpfl-paginas"
+SNAPSHOT_JS = """() => {
+  const chaves = ["débito", "debito", "segunda via", "conta completa", "outra instalação", "historico", "histórico"];
+  const vistos = new Set();
+  return [...document.querySelectorAll("a[href]")].map(a => [a.textContent.trim().replace(/\\s+/g, " "), a.href])
+    .filter(([t, h]) => h.startsWith(location.origin) && chaves.some(c => t.toLowerCase().includes(c))
+      && !vistos.has(h) && vistos.add(h));
+}"""
 # Todas as chaves do sessionStorage e do localStorage, para achar a sessão mesmo se o portal mudar o nome da chave.
 STORAGE_JS = """() => [["session", sessionStorage], ["local", localStorage]].flatMap(
   ([onde, s]) => Object.keys(s).map(k => [onde, k, s.getItem(k)]))"""
@@ -96,11 +107,11 @@ def _storage(page: Any) -> list[tuple[str, str, Any]]:
 
 
 def cpfl_capture(page: Any, context: Any, seen: Seen | None = None) -> dict[str, Any] | None:
-    """Pega a resposta do /api/token da Agência Virtual CPFL.
+    """Sessão da Agência Virtual CPFL, depois que a unidade consumidora foi escolhida.
 
-    O site antigo guardava em sessionStorage['userSessionStorage']; o novo (cpfl.com.br/agencia) pode usar outra
-    chave, então também olha qualquer JSON com access_token no storage e as respostas de /token vistas na rede.
-    Só conclui quando a unidade consumidora já foi escolhida (Instalacao), senão a coleta não acha contas.
+    O site antigo (servicosonline) devolvia um token no /api/token, guardado em sessionStorage['userSessionStorage'].
+    O novo (cpfl.com.br/agencia-virtual) não usa token: a sessão fica no servidor e o navegador só tem cookies, então
+    ali a captura conclui quando a página da UC abre e guarda os cookies do domínio.
     """
     data: dict[str, Any] = {}
     if seen and seen.tokens:
@@ -114,11 +125,42 @@ def cpfl_capture(page: Any, context: Any, seen: Seen | None = None) -> dict[str,
                     key=lambda v: not v.get("Instalacao"))
     if stored:
         data.update(stored[0])
+    url = page.url if isinstance(getattr(page, "url", None), str) else ""
     if not data.get("access_token") or not (data.get("Instalacao") or data.get("ListaInstalacoes")):
-        return None
+        if AGENCIA_VIRTUAL not in urlsplit(url).path:
+            return None
+        data = {"site": "agencia-virtual", "home": url}
     data["user_agent"] = page.evaluate("() => navigator.userAgent")
     data["cookies"] = {c["name"]: c["value"] for c in context.cookies() if CPFL_COOKIE_DOMAIN in c["domain"]}
+    if data.get("site") and not data["cookies"]:
+        return None
     return data
+
+
+def snapshot_pages(page: Any, folder: Path = SNAPSHOT_DIR, limit: int = 6) -> list[Path]:
+    """Guarda o HTML da página da UC e das páginas de débito e segunda via, para montar a coleta do site novo.
+
+    Só abre links (GET) do próprio portal. Os arquivos ficam no PC, na pasta logs (fora do Git), porque têm os dados
+    da conta.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    saved: list[Path] = []
+
+    def save(name: str) -> None:
+        plain = unicodedata.normalize("NFKD", name.lower()).encode("ascii", "ignore").decode()
+        slug = "".join(c if c.isalnum() else "-" for c in plain).strip("-")[:40] or "pagina"
+        path = folder / f"{len(saved):02d}-{slug}.html"
+        path.write_text(page.content(), encoding="utf-8")
+        saved.append(path)
+
+    save("pagina-inicial")
+    for text, href in (page.evaluate(SNAPSHOT_JS) or [])[:limit]:
+        try:
+            page.goto(href)
+            save(text)
+        except Exception:  # link que não abre: segue para o próximo
+            continue
+    return saved
 
 
 def aegea_capture(page: Any, context: Any, seen: Seen | None = None) -> dict[str, Any] | None:
@@ -189,6 +231,11 @@ def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]: 
                     except Exception:  # página navegando entre o portal e o login da Microsoft
                         data = None
                     if data:
+                        if data.get("site") == "agencia-virtual":
+                            try:
+                                snapshot_pages(p)
+                            except Exception:  # a sessão já foi capturada; as páginas são só para a próxima etapa
+                                pass
                         _diag_hint(provider, seen, keys)
                         return data
                 _diag_hint(provider, seen, keys)  # sempre atualizado, mesmo se a janela for fechada à força
