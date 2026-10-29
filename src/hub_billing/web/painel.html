@@ -17,7 +17,6 @@ header .marca{display:inline-grid;place-items:center;width:30px;height:30px;bord
 header .who{margin-left:auto;font-size:13px;font-weight:500}
 .tema{font:inherit;width:36px;height:36px;border-radius:50%;border:0;background:none;color:inherit;cursor:pointer;display:inline-grid;place-items:center;padding:0}
 .tema:hover{background:rgba(255,255,255,.12)}
-#login .tema{float:right;color:var(--ink);border:1px solid var(--line);border-radius:6px}
 nav{display:flex;gap:4px;padding:0 24px;background:var(--card);border-bottom:1px solid var(--line);overflow-x:auto}
 nav button{border:0;background:none;padding:12px 14px;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;font:inherit;font-weight:500}
 nav button.on{color:var(--ink);border-bottom-color:var(--brand);font-weight:700}
@@ -56,34 +55,90 @@ header button.sec:hover{background:rgba(255,255,255,.12);border-color:#fff}
 h3.sub{flex-basis:100%;margin:8px 0 0;font-size:13px;color:var(--muted);font-weight:600}
 label.wide{flex:1 1 280px}
 td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
-#login,#senha{max-width:360px;margin:12vh auto;border-top:4px solid var(--brand)}
-#login form,#senha form{flex-direction:column;align-items:stretch}
+.auth{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
+.auth-card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px 28px 22px;box-shadow:0 8px 28px rgba(15,26,40,.08)}
+.auth-card h2{text-align:center;font-size:24px;font-weight:800;margin:0}
+.auth-card h2::after{content:"";display:block;width:36px;height:3px;border-radius:2px;background:var(--brand);margin:10px auto 22px}
+.auth-card p.lead{color:var(--muted);text-align:center;margin:-8px 0 18px}
+.auth-card form{display:flex;flex-direction:column;gap:16px}
+.auth-card label{font-size:13px;font-weight:700;color:var(--ink);gap:8px}
+.campo{position:relative;display:flex;align-items:center}
+.campo>svg{position:absolute;left:16px;color:var(--muted);pointer-events:none}
+.campo input{width:100%;min-width:0;height:50px;padding:0 48px;border-radius:10px;font-size:14px;font-weight:400}
+.campo input::placeholder{color:var(--muted);opacity:.8}
+.olho{position:absolute;right:10px;width:34px;height:34px;border:0;border-radius:8px;background:none;color:var(--muted);cursor:pointer;display:grid;place-items:center}
+.olho:hover{color:var(--ink)}
+.auth-linha{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.auth-linha label{flex-direction:row;align-items:center;font-weight:600;cursor:pointer}
+.auth-linha input[type=checkbox]{min-width:0;width:20px;height:20px;margin:0;accent-color:var(--brand)}
+a.link,button.link{color:var(--link);font:inherit;font-weight:600;font-size:13px;text-decoration:none;background:none;border:0;padding:0;cursor:pointer}
+a.link:hover,button.link:hover{text-decoration:underline}
+.auth-card button.pri{height:50px;border-radius:10px;font-size:16px;font-weight:700}
+.auth-rodape{border-top:1px solid var(--line);margin-top:22px;padding-top:16px;text-align:center;color:var(--muted)}
+.auth-rodape .link{display:block;margin:6px auto 0;font-size:14px}
+.auth-card .msg:empty{display:none}
+.tema-flut{position:fixed;top:14px;right:14px;color:var(--ink);border:1px solid var(--line);background:var(--card)}
 .hide{display:none}
 @media (max-width:600px){header,nav,main{padding-left:16px;padding-right:16px}}
 </style>
 </head>
 <body>
-<div id="login" class="card">
-  <button class="tema" type="button" title="Alternar modo claro/escuro"></button>
-  <h2>Hub Billing Provider</h2>
-  <form class="row" id="login-form">
-    <label>E-mail<input name="username" type="email" autocomplete="username" required></label>
-    <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
-    <button class="pri" type="submit">Entrar</button>
-  </form>
-  <div class="msg" id="login-msg"></div>
+<button class="tema tema-flut auth-only" type="button" title="Alternar modo claro/escuro"></button>
+
+<div id="login" class="auth">
+  <div class="auth-card">
+    <h2>Login</h2>
+    <form id="login-form">
+      <label>Email<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="m3.5 6 8.5 7 8.5-7"/></svg><input name="username" type="email" placeholder="exemplo@gmail.com" autocomplete="username" required></div></label>
+      <label>Senha<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 15v2"/></svg><input name="password" type="password" placeholder="Senha" autocomplete="current-password" required><button class="olho" type="button" aria-label="Mostrar senha"></button></div></label>
+      <div class="auth-linha">
+        <label><input type="checkbox" id="lembrar"> Lembrar de mim</label>
+        <button class="link" type="button" data-ir="esqueci">Esqueceu sua senha?</button>
+      </div>
+      <button class="pri" type="submit">Entrar</button>
+    </form>
+    <div class="msg" id="login-msg"></div>
+    <div class="auth-rodape">Ainda não tem uma conta?<button class="link" type="button" data-ir="cadastro">Cadastre-se</button></div>
+  </div>
 </div>
 
-<div id="senha" class="card hide">
-  <h2>Trocar senha</h2>
-  <p class="msg" id="senha-aviso">Este é o seu primeiro acesso: crie uma senha só sua para continuar.</p>
-  <form class="row" id="senha-form">
-    <label>Nova senha<input name="new_password" type="password" autocomplete="new-password" minlength="10" required></label>
-    <label>Repita a nova senha<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>
-    <button class="pri" type="submit">Salvar senha</button>
-    <button class="sec" type="button" id="senha-cancelar">Cancelar</button>
-  </form>
-  <div class="msg" id="senha-msg"></div>
+<div id="cadastro" class="auth hide">
+  <div class="auth-card">
+    <h2>Cadastro</h2>
+    <p class="lead">O administrador aprova o seu acesso e define o que você pode fazer.</p>
+    <form id="cadastro-form">
+      <label>Nome<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><input name="name" placeholder="Seu nome" autocomplete="name" required></div></label>
+      <label>Email<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="m3.5 6 8.5 7 8.5-7"/></svg><input name="email" type="email" placeholder="exemplo@gmail.com" autocomplete="email" required></div></label>
+      <label>Senha<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 15v2"/></svg><input name="password" type="password" placeholder="Mínimo de 10 caracteres" autocomplete="new-password" required minlength="10"><button class="olho" type="button" aria-label="Mostrar senha"></button></div></label>
+      <label>Repita a senha<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 15v2"/></svg><input name="confirm" type="password" placeholder="Repita a senha" autocomplete="new-password" required minlength="10"><button class="olho" type="button" aria-label="Mostrar senha"></button></div></label>
+      <button class="pri" type="submit">Solicitar acesso</button>
+    </form>
+    <div class="msg" id="cadastro-msg"></div>
+    <div class="auth-rodape">Já tem uma conta?<button class="link" type="button" data-ir="login">Entrar</button></div>
+  </div>
+</div>
+
+<div id="esqueci" class="auth hide">
+  <div class="auth-card">
+    <h2>Esqueceu sua senha?</h2>
+    <p class="lead">Peça ao administrador do hub para redefinir: no painel, aba <b>Usuários</b>, botão <b>Redefinir senha</b>. Ele recebe uma senha temporária para passar a você, e o painel pede uma senha nova no primeiro acesso.</p>
+    <p class="lead">Se você é o administrador, dê dois cliques em <code>resetar-senha.bat</code> na pasta do hub: o acesso volta para o e-mail e a senha do arquivo <code>.env</code>.</p>
+    <div class="auth-rodape"><button class="link" type="button" data-ir="login">Voltar para o login</button></div>
+  </div>
+</div>
+
+<div id="senha" class="auth hide">
+  <div class="auth-card">
+    <h2>Trocar senha</h2>
+    <p class="lead" id="senha-aviso">Este é o seu primeiro acesso: crie uma senha só sua para continuar.</p>
+    <form id="senha-form">
+      <label>Nova senha<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 15v2"/></svg><input name="new_password" type="password" placeholder="Mínimo de 10 caracteres" autocomplete="new-password" required minlength="10"><button class="olho" type="button" aria-label="Mostrar senha"></button></div></label>
+      <label>Repita a nova senha<div class="campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 15v2"/></svg><input name="confirm" type="password" placeholder="Repita a nova senha" autocomplete="new-password" required minlength="10"><button class="olho" type="button" aria-label="Mostrar senha"></button></div></label>
+      <button class="pri" type="submit">Salvar senha</button>
+    </form>
+    <div class="msg" id="senha-msg"></div>
+    <div class="auth-rodape" id="senha-cancelar-box"><button class="link" type="button" id="senha-cancelar">Cancelar</button></div>
+  </div>
 </div>
 
 <div id="app" class="hide">
@@ -94,6 +149,7 @@ td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
     <button data-tab="contas">Contas e imóveis</button>
     <button data-tab="lotes">Lotes</button>
     <button data-tab="portais">Portais</button>
+    <button data-tab="usuarios" class="hide" id="tab-usuarios">Usuários</button>
   </nav>
   <main>
     <section data-view="faturas">
@@ -172,6 +228,15 @@ td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
       <div class="card scroll"><table id="t-lotes"></table></div>
     </section>
 
+    <section data-view="usuarios" class="hide">
+      <div class="card scroll">
+        <h2>Usuários</h2>
+        <p class="msg">Pedidos feitos em "Cadastre-se" aparecem como <b>Aguardando aprovação</b>. Escolha o perfil e clique em Aprovar.</p>
+        <table id="t-usuarios"></table>
+      </div>
+      <div class="msg" id="m-usuarios"></div>
+    </section>
+
     <section data-view="portais" class="hide">
       <div class="card">
         <h2>Coletar agora</h2>
@@ -212,7 +277,12 @@ const esc = v => String(v ?? "—").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"
 const cut = v => `<span title="${esc(v)}">${esc(v)}</span>`;
 const chip = s => `<span class="chip ${TONE[s] || ""}">${esc(STATUS[s] || s)}</span>`;
 const $ = s => document.querySelector(s);
-let token = sessionStorage.getItem("hub.token");
+const guarda = {
+  ler() { try { return sessionStorage.getItem("hub.token") || localStorage.getItem("hub.token"); } catch (e) { return null; } },
+  salvar(t, lembrar) { try { (lembrar ? localStorage : sessionStorage).setItem("hub.token", t); } catch (e) {} },
+  limpar() { try { sessionStorage.removeItem("hub.token"); localStorage.removeItem("hub.token"); } catch (e) {} },
+};
+let token = guarda.ler();
 
 async function api(path, opts = {}) {
   const headers = {Authorization: `Bearer ${token}`, ...(opts.json ? {"Content-Type": "application/json"} : {})};
@@ -300,7 +370,22 @@ async function conectar(provider, distributor) {
   finally { document.querySelectorAll("[data-provider]").forEach(b => b.disabled = false); loadPortais(); }
 }
 
-const LOADERS = {faturas: loadFaturas, contas: loadContas, lotes: loadLotes, portais: loadPortais, importar: async () => {}};
+const PERFIS = {operador: "Operador", consulta: "Consulta"};
+async function loadUsuarios() {
+  const perfil = u => u.is_admin ? "Administrador"
+    : `<select data-perfil="${esc(u.id)}"><option value="">Sem perfil</option>${Object.entries(PERFIS).map(([k, v]) =>
+        `<option value="${k}" ${u.roles.includes(k) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+  const situacao = u => u.active ? `<span class="chip ok">Ativo</span>`
+    : u.roles.length ? `<span class="chip bad">Bloqueado</span>` : `<span class="chip warn">Aguardando aprovação</span>`;
+  const acoes = u => u.is_admin ? "" : [
+    u.active ? `<button class="sec" data-status="${esc(u.id)}" data-ativo="0">Bloquear</button>`
+             : `<button class="pri" data-status="${esc(u.id)}" data-ativo="1">Aprovar</button>`,
+    `<button class="sec" data-reset="${esc(u.id)}" data-email="${esc(u.email)}">Redefinir senha</button>`].join(" ");
+  table($("#t-usuarios"), [["Nome", u => esc(u.name)], ["E-mail", u => esc(u.email)], ["Perfil", perfil],
+    ["Situação", situacao], ["", acoes]], await api("/api/v1/users"), "Nenhum usuário.");
+}
+
+const LOADERS = {faturas: loadFaturas, contas: loadContas, lotes: loadLotes, portais: loadPortais, usuarios: loadUsuarios, importar: async () => {}};
 
 function show(tab) {
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
@@ -309,37 +394,92 @@ function show(tab) {
   LOADERS[tab]().catch(e => console.error(e));
 }
 
+function tela(id) {
+  document.querySelectorAll(".auth").forEach(t => t.classList.toggle("hide", t.id !== id));
+  document.querySelectorAll(".auth-only").forEach(t => t.classList.toggle("hide", id === "app"));
+  $("#app").classList.toggle("hide", id !== "app");
+}
+
 function pedirSenha(obrigatoria) {
   $("#senha-form").reset(); say("#senha-msg", "");
   $("#senha-aviso").classList.toggle("hide", !obrigatoria);
-  $("#senha-cancelar").classList.toggle("hide", obrigatoria);
-  $("#login").classList.add("hide"); $("#app").classList.add("hide"); $("#senha").classList.remove("hide");
+  $("#senha-cancelar-box").classList.toggle("hide", obrigatoria);
+  tela("senha");
 }
 
 async function start() {
   const me = await api("/api/v1/me");
   if (me.must_change_password) return pedirSenha(true);
-  $("#senha").classList.add("hide");
+  $("#tab-usuarios").classList.toggle("hide", !me.permissions.includes("users:manage"));
   const h = new Date().getHours();
   $("#who").textContent = `${h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite"}, ${me.name || me.email}`;
   const providers = await api("/api/v1/providers");
   document.querySelectorAll(".providers").forEach(s => s.innerHTML = providers.map(p => `<option>${esc(p)}</option>`).join(""));
-  $("#login").classList.add("hide"); $("#app").classList.remove("hide");
-  show(LOADERS[location.hash.slice(1)] ? location.hash.slice(1) : "faturas");
+  tela("app");
+  const aba = location.hash.slice(1);
+  show(LOADERS[aba] && !$(`#tabs [data-tab="${aba}"]`).classList.contains("hide") ? aba : "faturas");
 }
 
-function logout() { token = null; sessionStorage.removeItem("hub.token"); $("#app").classList.add("hide"); $("#senha").classList.add("hide"); $("#login").classList.remove("hide"); }
+function logout() { token = null; guarda.limpar(); tela("login"); }
 
 $("#login-form").addEventListener("submit", async e => {
   e.preventDefault();
   const res = await fetch("/api/v1/auth/login", {method: "POST", body: new URLSearchParams(new FormData(e.target))});
+  if (res.status === 403) return say("#login-msg", "Seu cadastro ainda aguarda a aprovação do administrador.", "bad");
   if (!res.ok) return say("#login-msg", "E-mail ou senha incorretos.", "bad");
-  token = (await res.json()).access_token; sessionStorage.setItem("hub.token", token);
+  say("#login-msg", "");
+  token = (await res.json()).access_token; guarda.salvar(token, $("#lembrar").checked);
   start().catch(err => say("#login-msg", err.message, "bad"));
 });
 $("#sair").addEventListener("click", logout);
 $("#trocar-senha").addEventListener("click", () => pedirSenha(false));
-$("#senha-cancelar").addEventListener("click", () => { $("#senha").classList.add("hide"); $("#app").classList.remove("hide"); });
+$("#senha-cancelar").addEventListener("click", () => tela("app"));
+document.querySelectorAll("[data-ir]").forEach(b => b.addEventListener("click", () => tela(b.dataset.ir)));
+const OLHO = ICONE('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>');
+const OLHO_RISCADO = ICONE('<path d="M2 12s3.6-7 10-7c2 0 3.8.7 5.2 1.6M22 12s-3.6 7-10 7c-2 0-3.8-.7-5.2-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/>');
+document.querySelectorAll(".olho").forEach(b => {
+  const campo = b.previousElementSibling;
+  const pintar = () => { const vis = campo.type === "text"; b.innerHTML = vis ? OLHO : OLHO_RISCADO;
+    b.setAttribute("aria-label", vis ? "Esconder senha" : "Mostrar senha"); };
+  b.addEventListener("click", () => { campo.type = campo.type === "password" ? "text" : "password"; pintar(); });
+  pintar();
+});
+$("#cadastro-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const {name, email, password, confirm} = form(e.target);
+  if (password !== confirm) return say("#cadastro-msg", "As duas senhas não são iguais.", "bad");
+  const res = await fetch("/api/v1/auth/signup", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({name, email, password})});
+  const data = await res.json().catch(() => null);
+  if (res.status === 409) return say("#cadastro-msg", "Este e-mail já tem cadastro. Use Entrar ou Esqueceu sua senha.", "bad");
+  if (!res.ok) return say("#cadastro-msg", typeof data?.detail === "string" ? data.detail : "Verifique os dados.", "bad");
+  e.target.reset();
+  say("#cadastro-msg", "Cadastro enviado. Assim que o administrador aprovar, você já pode entrar.", "ok");
+});
+$("[data-view=usuarios]").addEventListener("click", async e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  try {
+    if (b.dataset.status) {
+      const id = b.dataset.status, ativo = b.dataset.ativo === "1";
+      const sel = document.querySelector(`[data-perfil="${id}"]`);
+      if (ativo && sel && sel.value) await api(`/api/v1/users/${id}/permissions`, {method: "PATCH", json: {roles: [sel.value]}});
+      await api(`/api/v1/users/${id}/status`, {method: "PATCH", json: {active: ativo}});
+      say("#m-usuarios", ativo ? "Usuário aprovado." : "Usuário bloqueado.", "ok");
+    } else if (b.dataset.reset) {
+      const r = await api(`/api/v1/users/${b.dataset.reset}/reset-password`, {method: "POST"});
+      say("#m-usuarios", `Senha temporária de ${b.dataset.email}: ${r.temporary_password} (passe ao usuário; ele troca no próximo acesso).`, "ok");
+    }
+    await loadUsuarios();
+  } catch (err) { say("#m-usuarios", err.message, "bad"); }
+});
+$("[data-view=usuarios]").addEventListener("change", async e => {
+  const sel = e.target.closest("select[data-perfil]");
+  if (!sel) return;
+  try { await api(`/api/v1/users/${sel.dataset.perfil}/permissions`, {method: "PATCH", json: {roles: sel.value ? [sel.value] : []}});
+        say("#m-usuarios", "Perfil atualizado.", "ok"); }
+  catch (err) { say("#m-usuarios", err.message, "bad"); }
+});
 $("#senha-form").addEventListener("submit", async e => {
   e.preventDefault();
   const {new_password, confirm} = form(e.target);
@@ -416,7 +556,7 @@ $("#f-coleta").addEventListener("submit", async e => {
   catch (err) { say("#m-coleta", err.message, "bad"); }
 });
 
-const ICONE = d => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+function ICONE(d) { return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`; }
 const SOL = ICONE('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
 const LUA = ICONE('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>');
 const escuro = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
@@ -428,7 +568,7 @@ document.querySelectorAll(".tema").forEach(b => b.addEventListener("click", () =
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", pintarTema);
 pintarTema();
 
-if (token) start().catch(logout);
+if (token) start().catch(logout); else tela("login");
 </script>
 </body>
 </html>

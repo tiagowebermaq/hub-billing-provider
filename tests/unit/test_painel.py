@@ -34,3 +34,11 @@ def test_painel_conecta_portais_sem_terminal(client: TestClient) -> None:
     assert 'data-provider="cpfl" data-distributor="rge"' in html
     assert 'data-provider="aegea" data-distributor="corsan"' in html
     assert "/connect" in html and "login_portal.py" not in html
+
+
+def test_login_no_novo_visual(client: TestClient) -> None:
+    html = client.get("/painel").text
+    for trecho in ('placeholder="exemplo@gmail.com"', 'id="lembrar"', "Lembrar de mim", "Esqueceu sua senha?",
+                   "Ainda não tem uma conta?", "Cadastre-se", 'class="olho"', "/api/v1/auth/signup",
+                   'data-tab="usuarios"', "/reset-password"):
+        assert trecho in html, trecho
