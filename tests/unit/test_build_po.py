@@ -72,3 +72,16 @@ def test_every_prs_only_bumps_after_threshold(build_po: ModuleType, monkeypatch:
     assert version_file.read_text(encoding="utf-8").strip() == ("1.3.0" if bumped else "1.2.0")
     if bumped:
         assert build_po.parse_changelog()[0][3][1:] == [f"PR #{i}: t{i}" for i in range(10)]
+
+
+def test_contagem_parte_do_ultimo_commit_do_po(build_po: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_git(*args: str) -> str:
+        calls.append(args)
+        return "abc123\n" if args[0] == "log" else "po-v1.1.0\n"
+
+    monkeypatch.setattr(build_po, "git_output", fake_git)
+    assert build_po.last_po_tag() == "abc123"  # mesmo sem a tag po-v* no GitHub
+    monkeypatch.setattr(build_po, "git_output", lambda *a: "" if a[0] == "log" else "po-v1.1.0\n")
+    assert build_po.last_po_tag() == "po-v1.1.0"

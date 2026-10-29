@@ -13,3 +13,4 @@ dist/
 docs/po/v*/*.html
 logs/
 .venv-descoberta/
+.hub-navegador/
