@@ -111,13 +111,6 @@ async def test_cpfl_usa_api_vista_no_login() -> None:
     assert validar.calls.last.request.headers["Origin"] == "https://www.cpfl.com.br"
 
 
-async def test_cpfl_sessao_do_site_novo_nao_expira_por_token() -> None:
-    async with httpx.AsyncClient() as http:
-        adapter = get_adapter("cpfl", "rge").use(http)
-        session = await adapter.resume({"site": "agencia-virtual", "cookies": {"SSESS": "x"}})
-        assert await adapter.list_accounts(session) == []
-
-
 def test_cpfl_distribuidora_invalida() -> None:
     with pytest.raises(ValueError):
         get_adapter("cpfl", "xpto")

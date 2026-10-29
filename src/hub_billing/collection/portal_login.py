@@ -29,12 +29,15 @@ DIAG_DIR = Path("logs")
 AGENCIA_VIRTUAL = "/agencia-virtual/"
 SNAPSHOT_DIR = DIAG_DIR / "cpfl-paginas"
 SNAPSHOT_JS = """() => {
-  const chaves = ["débito", "debito", "segunda via", "conta completa", "outra instalação", "historico", "histórico"];
+  const chaves = ["conta completa", "unidades consumidoras", "outra instalação"];
   const vistos = new Set();
   return [...document.querySelectorAll("a[href]")].map(a => [a.textContent.trim().replace(/\\s+/g, " "), a.href])
-    .filter(([t, h]) => h.startsWith(location.origin) && chaves.some(c => t.toLowerCase().includes(c))
+    .filter(([t, h]) => h.startsWith(location.origin + "/agencia") && chaves.some(c => t.toLowerCase().includes(c))
       && !vistos.has(h) && vistos.add(h));
 }"""
+# "2ª via da conta" do site novo leva ao app antigo (servicosonline) já logado, que devolve o token com todas as UCs.
+PONTE_APP_ANTIGO = "https://www.cpfl.com.br/cpfl-auth/redirect-arame-active-profile?redirect_uri=historico-contas"
+PONTE_TIMEOUT_S = 60
 # Todas as chaves do sessionStorage e do localStorage, para achar a sessão mesmo se o portal mudar o nome da chave.
 STORAGE_JS = """() => [["session", sessionStorage], ["local", localStorage]].flatMap(
   ([onde, s]) => Object.keys(s).map(k => [onde, k, s.getItem(k)]))"""
@@ -205,6 +208,8 @@ def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]: 
     seen = Seen()
     pending: list[Any] = []
     keys: set[str] = set()
+    site_session: dict[str, Any] | None = None
+    ponte_ate = 0.0
     closed = "a janela do portal foi fechada antes de concluir o login. "
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=False)
@@ -216,6 +221,8 @@ def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]: 
             deadline = time.monotonic() + timeout_s
             while time.monotonic() < deadline:
                 if not browser.is_connected() or not context.pages:
+                    if site_session is not None:  # fechada durante a ponte: vale a sessão do site novo
+                        return site_session
                     raise LoginTimeout(closed + _diag_hint(provider, seen, keys))
                 while pending:
                     r = pending.pop(0)
@@ -230,23 +237,34 @@ def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]: 
                         data = CAPTURE[provider](p, context, seen)
                     except Exception:  # página navegando entre o portal e o login da Microsoft
                         data = None
-                    if data:
-                        if data.get("site") == "agencia-virtual":
+                    if data and data.get("site") == "agencia-virtual" and not data.get("access_token"):
+                        if site_session is None:  # guarda a sessão do site novo e tenta o app antigo, com todas as UCs
+                            site_session, ponte_ate = data, time.monotonic() + PONTE_TIMEOUT_S
                             try:
                                 snapshot_pages(p)
-                            except Exception:  # a sessão já foi capturada; as páginas são só para a próxima etapa
-                                pass
+                                p.goto(PONTE_APP_ANTIGO)
+                            except Exception:  # sem a ponte, fica a sessão do site novo
+                                ponte_ate = 0.0
+                        data = None
+                    if data:
                         _diag_hint(provider, seen, keys)
                         return data
+                if site_session is not None and time.monotonic() > ponte_ate:
+                    _diag_hint(provider, seen, keys)
+                    return site_session
                 _diag_hint(provider, seen, keys)  # sempre atualizado, mesmo se a janela for fechada à força
                 try:
                     context.pages[0].wait_for_timeout(2000)
                 except Exception:  # janela fechada durante a espera
                     if not browser.is_connected() or not context.pages:
+                        if site_session is not None:
+                            return site_session
                         raise LoginTimeout(closed + _diag_hint(provider, seen, keys)) from None
         finally:
             if browser.is_connected():
                 browser.close()
+    if site_session is not None:
+        return site_session
     raise LoginTimeout(f"o login não foi concluído em {timeout_s // 60} minutos. " + _diag_hint(provider, seen, keys))
 
 
