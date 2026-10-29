@@ -2,13 +2,16 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
+<script>try{const t=localStorage.getItem("hub.tema");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hub Billing · Painel</title>
 <style>
 :root{--bg:#f5f6f8;--card:#fff;--ink:#1d2330;--muted:#667085;--line:#e3e6eb;--brand:#1f6feb;--brand-ink:#fff;
---ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--chip:#eef1f5}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#171b23;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a303b;
---brand:#4c8dff;--chip:#222833;--ok:#3fb950;--warn:#d29922;--bad:#f85149}}
+--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--chip:#eef1f5;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1218;--card:#171b23;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a303b;--brand:#4c8dff;--chip:#222833;--ok:#3fb950;--warn:#d29922;--bad:#f85149;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1218;--card:#171b23;--ink:#e6e9ef;--muted:#98a2b3;--line:#2a303b;--brand:#4c8dff;--chip:#222833;--ok:#3fb950;--warn:#d29922;--bad:#f85149;color-scheme:dark}
+.tema{font:inherit;width:36px;height:36px;border-radius:6px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer;display:inline-grid;place-items:center;padding:0}
+#login .tema{float:right}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
 header{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--card);border-bottom:1px solid var(--line)}
@@ -47,6 +50,7 @@ button.sec{background:none;color:var(--brand)}
 </head>
 <body>
 <div id="login" class="card">
+  <button class="tema" type="button" title="Alternar modo claro/escuro"></button>
   <h2>Hub Billing Provider</h2>
   <form class="row" id="login-form">
     <label>E-mail<input name="username" type="email" autocomplete="username" required></label>
@@ -57,7 +61,7 @@ button.sec{background:none;color:var(--brand)}
 </div>
 
 <div id="app" class="hide">
-  <header><h1>Hub Billing Provider</h1><span class="who" id="who"></span><button class="sec" id="sair">Sair</button></header>
+  <header><h1>Hub Billing Provider</h1><span class="who" id="who"></span><button class="tema" type="button" title="Alternar modo claro/escuro"></button><button class="sec" id="sair">Sair</button></header>
   <nav id="tabs">
     <button data-tab="faturas" class="on">Faturas</button>
     <button data-tab="importar">Importar fatura</button>
@@ -298,6 +302,18 @@ $("#f-coleta").addEventListener("submit", async e => {
   try { await api("/api/v1/collections", {method: "POST", json: form(e.target)}); say("#m-coleta", "Coleta iniciada. As faturas aparecem na aba Faturas.", "ok"); }
   catch (err) { say("#m-coleta", err.message, "bad"); }
 });
+
+const ICONE = d => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const SOL = ICONE('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
+const LUA = ICONE('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>');
+const escuro = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+function pintarTema() { document.querySelectorAll(".tema").forEach(b => { b.innerHTML = escuro() ? SOL : LUA;
+  b.setAttribute("aria-label", escuro() ? "Usar modo claro" : "Usar modo escuro"); }); }
+document.querySelectorAll(".tema").forEach(b => b.addEventListener("click", () => {
+  const t = escuro() ? "light" : "dark"; document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("hub.tema", t); } catch (e) {} pintarTema(); }));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", pintarTema);
+pintarTema();
 
 if (token) start().catch(logout);
 </script>

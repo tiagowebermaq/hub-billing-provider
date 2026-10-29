@@ -14,3 +14,10 @@ def test_painel_e_pagina_sem_dependencias_externas(client: TestClient) -> None:
     html = res.text
     assert "/api/v1/auth/login" in html and "/api/v1/bills" in html
     assert "https://" not in html  # nada de CDN: funciona offline e na rede da empresa
+
+
+def test_painel_tem_modo_claro_e_escuro(client: TestClient) -> None:
+    html = client.get("/painel").text
+    assert 'prefers-color-scheme:dark' in html  # segue o sistema por padrão
+    assert ':root[data-theme="dark"]' in html and ':root:not([data-theme="light"])' in html
+    assert 'class="tema"' in html and "hub.tema" in html  # botão e escolha lembrada
