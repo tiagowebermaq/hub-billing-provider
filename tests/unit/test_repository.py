@@ -2,9 +2,10 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import text
 
 from hub_billing.domain.grouping import group_bills
-from hub_billing.domain.models import BatchStatus, Bill, BillStatus, UtilityType
+from hub_billing.domain.models import BatchStatus, Bill, BillStatus, ConsumerInfo, PropertyInfo, UtilityType
 from hub_billing.infra.repository import Repository
 
 
@@ -24,7 +25,7 @@ def test_vinculo_de_conta_cria_e_atualiza(repo: Repository) -> None:
     assert repo.find_link("cpfl", "uc1") is None
     repo.link_account("cpfl", "uc1", "imovel-1", None)
     repo.link_account("cpfl", "uc1", "imovel-2", "ctr-2")
-    assert repo.find_link("cpfl", "uc1") == ("imovel-2", "ctr-2")
+    assert repo.find_link("cpfl", "uc1")[:2] == ("imovel-2", "ctr-2")
     assert [(r["account_number"], r["property_id"]) for r in repo.list_links()] == [("uc1", "imovel-2")]
 
 
@@ -61,3 +62,27 @@ def test_lote_gravado_e_status_propagado(repo: Repository) -> None:
 def test_engine_postgres_nao_conecta_na_criacao() -> None:
     r = Repository.from_url("postgresql+psycopg://hub:hub@localhost:1/hub")
     assert r.engine.dialect.name == "postgresql"
+
+
+def test_cadastro_do_imovel_e_titular_no_vinculo(repo: Repository) -> None:
+    repo.save_bill(bill("uc9", prop=None).model_copy(update={"consumer": ConsumerInfo(name="Ana")}))
+    prop, consumer = PropertyInfo(address="Rua A, 10", city="Canoas"), ConsumerInfo(name="Outro", document="123")
+    assert repo.link_account("cpfl", "uc9", "imovel-9", None, prop, consumer) == 1
+    link = repo.find_link("cpfl", "uc9")
+    assert link is not None and (link.property_info, link.consumer) == (prop, consumer)
+    assert repo.list_links()[0]["registry"] == {"property": {"address": "Rua A, 10", "city": "Canoas"},
+                                                "consumer": {"name": "Outro", "document": "123"}}
+    [released] = repo.list_bills(status=BillStatus.NORMALIZED)
+    assert released.consumer == ConsumerInfo(name="Ana", document="123") and released.property_info == prop
+
+
+def test_banco_antigo_ganha_coluna_de_cadastro() -> None:
+    r = Repository.from_url("sqlite+pysqlite:///:memory:")
+    with r.engine.begin() as conn:
+        conn.execute(text("CREATE TABLE account_links (provider VARCHAR(32), account_number VARCHAR(64), "
+                          "property_id VARCHAR(64) NOT NULL, contract_id VARCHAR(64), updated_at TIMESTAMP NOT NULL, "
+                          "PRIMARY KEY (provider, account_number))"))
+    r.create_schema()
+    r.link_account("cpfl", "uc1", "imovel-1", None, consumer=ConsumerInfo(name="Ana"))
+    link = r.find_link("cpfl", "uc1")
+    assert link is not None and link.consumer == ConsumerInfo(name="Ana")

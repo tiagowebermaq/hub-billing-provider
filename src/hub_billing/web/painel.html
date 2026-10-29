@@ -42,6 +42,9 @@ button.pri{background:var(--brand);color:var(--brand-ink)}
 button.sec{background:none;color:var(--brand)}
 .msg{margin-top:10px;color:var(--muted)}.msg.bad{color:var(--bad)}.msg.ok{color:var(--ok)}
 .empty{color:var(--muted);padding:12px 0}
+h3.sub{flex-basis:100%;margin:8px 0 0;font-size:13px;color:var(--muted);font-weight:600}
+label.wide{flex:1 1 280px}
+td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
 #login{max-width:360px;margin:12vh auto}
 #login form{flex-direction:column;align-items:stretch}
 .hide{display:none}
@@ -113,8 +116,22 @@ button.sec{background:none;color:var(--brand)}
           <label>Conta / UC / matrícula<input name="account_number" required></label>
           <label>Imóvel<input name="property_id" required></label>
           <label>Contrato<input name="contract_id"></label>
+          <h3 class="sub">Cadastro do imóvel na concessionária</h3>
+          <label class="wide">Endereço<input name="property.address"></label>
+          <label>CEP<input name="property.zip_code" placeholder="00000-000"></label>
+          <label>Cidade<input name="property.city"></label>
+          <label>UF<input name="property.state" maxlength="2" style="min-width:60px;width:60px"></label>
+          <label>Classe / categoria<input name="property.category" placeholder="Residencial"></label>
+          <label>Ligação<input name="property.connection_type" placeholder="Bifásica"></label>
+          <label>Medidor / hidrômetro<input name="property.meter"></label>
+          <h3 class="sub">Titular da conta</h3>
+          <label class="wide">Nome ou razão social<input name="consumer.name"></label>
+          <label>CPF / CNPJ<input name="consumer.document"></label>
+          <label>Titular desde<input name="consumer.holder_since" type="date"></label>
+          <label>E-mail da fatura<input name="consumer.email" type="email"></label>
           <button class="pri" type="submit">Salvar</button>
         </form>
+        <p class="msg">O que vier na fatura tem prioridade; este cadastro completa o que a fatura não trouxer.</p>
         <div class="msg" id="m-contas"></div>
       </div>
       <div class="card scroll"><table id="t-contas"></table></div>
@@ -161,6 +178,7 @@ const brl = v => Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BR
 const date = v => v ? new Date(v.length === 10 ? v + "T12:00:00" : v).toLocaleDateString("pt-BR") : "—";
 const when = v => v ? new Date(v).toLocaleString("pt-BR") : "—";
 const esc = v => String(v ?? "—").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cut = v => `<span title="${esc(v)}">${esc(v)}</span>`;
 const chip = s => `<span class="chip ${TONE[s] || ""}">${esc(STATUS[s] || s)}</span>`;
 const $ = s => document.querySelector(s);
 let token = sessionStorage.getItem("hub.token");
@@ -196,16 +214,22 @@ async function loadFaturas() {
     ["Concessionária", b => esc(b.distributor ? `${b.provider} · ${b.distributor}` : b.provider)],
     ["Tipo", b => TYPE[b.utility_type] || esc(b.utility_type)],
     ["Conta", b => esc(b.account_number)], ["Imóvel", b => esc(b.property_id)],
+    ["Titular", b => esc(b.consumer?.name)], ["Endereço", b => cut(b.property_info?.address), "cut"],
     ["Competência", b => esc(b.reference_month)], ["Vencimento", b => date(b.due_date)],
     ["Valor", b => brl(b.amount), "num"], ["Status", b => chip(b.status)],
   ], bills, "Nenhuma fatura ainda. Importe um PDF ou inicie uma coleta.");
 }
 
+let links = [];
 async function loadContas() {
+  links = await api("/api/v1/accounts");
   table($("#t-contas"), [
     ["Concessionária", r => esc(r.provider)], ["Conta", r => esc(r.account_number)],
-    ["Imóvel", r => esc(r.property_id)], ["Contrato", r => esc(r.contract_id)], ["Atualizado", r => when(r.updated_at)],
-  ], await api("/api/v1/accounts"), "Nenhuma conta vinculada.");
+    ["Imóvel", r => esc(r.property_id)], ["Contrato", r => esc(r.contract_id)],
+    ["Titular", r => esc(r.registry?.consumer?.name)], ["CPF / CNPJ", r => esc(r.registry?.consumer?.document)],
+    ["Endereço", r => cut(r.registry?.property?.address), "cut"], ["Atualizado", r => when(r.updated_at)],
+    ["", r => `<button class="sec" data-edit="${links.indexOf(r)}">Editar</button>`],
+  ], links, "Nenhuma conta vinculada.");
 }
 
 async function loadLotes() {
@@ -279,11 +303,26 @@ $("#f-linha").addEventListener("submit", async e => {
 });
 $("#f-contas").addEventListener("submit", async e => {
   e.preventDefault();
-  const {provider, account_number, ...json} = form(e.target);
+  const {provider, account_number, ...fields} = form(e.target);
+  const json = {};
+  for (const [k, v] of Object.entries(fields)) {
+    const [group, key] = k.split(".");
+    if (key) (json[group] ??= {})[key] = v; else json[k] = v;
+  }
   try {
     const r = await api(`/api/v1/accounts/${encodeURIComponent(provider)}/${encodeURIComponent(account_number)}`, {method: "PUT", json});
     say("#m-contas", `Conta vinculada. ${r.bills_released} fatura(s) liberada(s) para lote.`, "ok"); loadContas();
   } catch (err) { say("#m-contas", err.message, "bad"); }
+});
+$("#t-contas").addEventListener("click", e => {
+  const r = links[e.target.dataset.edit]; if (!r) return;
+  const f = $("#f-contas"); f.reset();
+  const values = {provider: r.provider, account_number: r.account_number, property_id: r.property_id,
+    contract_id: r.contract_id || ""};
+  for (const g of ["property", "consumer"])
+    for (const [k, v] of Object.entries(r.registry?.[g] || {})) values[`${g}.${k}`] = v;
+  for (const [k, v] of Object.entries(values)) if (f.elements[k]) f.elements[k].value = v;
+  f.scrollIntoView({behavior: "smooth"});
 });
 $("#f-fechar").addEventListener("submit", async e => {
   e.preventDefault();

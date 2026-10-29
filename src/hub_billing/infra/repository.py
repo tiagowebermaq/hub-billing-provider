@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from cryptography.fernet import InvalidToken
 from sqlalchemy import (
@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     insert,
+    inspect,
     select,
     update,
 )
@@ -27,7 +28,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 
 from hub_billing.core.security import SecretBox
-from hub_billing.domain.models import BatchStatus, Bill, BillingBatch, BillStatus
+from hub_billing.domain.models import (
+    BatchStatus,
+    Bill,
+    BillingBatch,
+    BillStatus,
+    ConsumerInfo,
+    PropertyInfo,
+    fill_gaps,
+)
 
 metadata = MetaData()
 
@@ -37,6 +46,7 @@ account_links = Table(
     Column("account_number", String(64), primary_key=True),
     Column("property_id", String(64), nullable=False),
     Column("contract_id", String(64)),
+    Column("registry", JSON),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -81,6 +91,28 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class AccountLink(NamedTuple):
+    """Vínculo da conta com o imóvel/contrato e o cadastro do imóvel e do titular feito no hub."""
+
+    property_id: str
+    contract_id: str | None
+    property_info: PropertyInfo | None = None
+    consumer: ConsumerInfo | None = None
+
+    def apply(self, bill: Bill) -> Bill:
+        """Vincula a conta ao imóvel. O que veio na fatura vale; o cadastro do hub completa o que faltar."""
+        return bill.model_copy(update={
+            "property_id": self.property_id, "contract_id": self.contract_id,
+            "property_info": fill_gaps(bill.property_info, self.property_info),
+            "consumer": fill_gaps(bill.consumer, self.consumer)})
+
+
+def _registry(property_info: PropertyInfo | None, consumer: ConsumerInfo | None) -> dict[str, Any] | None:
+    data = {k: v.model_dump(mode="json", exclude_none=True) for k, v in
+            (("property", property_info), ("consumer", consumer)) if v is not None}
+    return data or None
+
+
 def make_engine(url: str) -> Engine:
     if url.startswith("sqlite") and ":memory:" in url:
         return create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -98,11 +130,19 @@ class Repository:
 
     def create_schema(self) -> None:
         metadata.create_all(self.engine)
+        # Bancos criados antes do cadastro do imóvel/titular não têm a coluna registry.
+        columns = {c["name"] for c in inspect(self.engine).get_columns("account_links")}
+        if "registry" not in columns:
+            with self.engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE account_links ADD COLUMN registry JSON")
 
     # Vínculos conta -> imóvel -------------------------------------------------------------
-    def link_account(self, provider: str, account_number: str, property_id: str, contract_id: str | None) -> int:
+    def link_account(self, provider: str, account_number: str, property_id: str, contract_id: str | None,
+                     property_info: PropertyInfo | None = None, consumer: ConsumerInfo | None = None) -> int:
         """Cria/atualiza o vínculo e libera as contas da conta que estavam em revisão manual. Devolve quantas."""
-        row = {"property_id": property_id, "contract_id": contract_id, "updated_at": _now()}
+        link = AccountLink(property_id, contract_id, property_info, consumer)
+        row = {"property_id": property_id, "contract_id": contract_id,
+               "registry": _registry(property_info, consumer), "updated_at": _now()}
         key = (account_links.c.provider == provider) & (account_links.c.account_number == account_number)
         with self.engine.begin() as conn:
             if conn.execute(update(account_links).where(key).values(**row)).rowcount == 0:
@@ -111,16 +151,22 @@ class Repository:
                 (bills.c.provider == provider) & (bills.c.account_number == account_number)
                 & (bills.c.status == BillStatus.MANUAL_REVIEW))).all()
             for bill_id, data in pending:
-                data = {**data, "property_id": property_id, "contract_id": contract_id, "status": BillStatus.NORMALIZED}
+                bill = link.apply(Bill.model_validate(data)).model_copy(update={"status": BillStatus.NORMALIZED})
                 conn.execute(update(bills).where(bills.c.id == bill_id).values(
-                    property_id=property_id, status=BillStatus.NORMALIZED, data=data))
+                    property_id=property_id, status=BillStatus.NORMALIZED, data=bill.model_dump(mode="json")))
         return len(pending)
 
-    def find_link(self, provider: str, account_number: str) -> tuple[str, str | None] | None:
+    def find_link(self, provider: str, account_number: str) -> AccountLink | None:
         with self.engine.connect() as conn:
-            row = conn.execute(select(account_links.c.property_id, account_links.c.contract_id).where(
+            row = conn.execute(select(account_links.c.property_id, account_links.c.contract_id,
+                                      account_links.c.registry).where(
                 (account_links.c.provider == provider) & (account_links.c.account_number == account_number))).first()
-        return None if row is None else (row[0], row[1])
+        if row is None:
+            return None
+        registry = row[2] or {}
+        return AccountLink(row[0], row[1],
+                           PropertyInfo.model_validate(registry["property"]) if registry.get("property") else None,
+                           ConsumerInfo.model_validate(registry["consumer"]) if registry.get("consumer") else None)
 
     def list_links(self) -> list[dict[str, Any]]:
         with self.engine.connect() as conn:

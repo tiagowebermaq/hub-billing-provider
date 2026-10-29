@@ -9,7 +9,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from hub_billing.collection.invoice import InvoiceParseError, ParsedInvoice, parse_text, pdf_text
-from hub_billing.domain.models import Bill, UtilityType
+from hub_billing.domain.models import Bill, ConsumerInfo, PropertyInfo, UtilityType
 
 CONSUMPTION_UNITS = {UtilityType.ENERGY: "kWh", UtilityType.WATER: "m3", UtilityType.TELECOM: None}
 
@@ -113,6 +113,10 @@ class ProviderAdapter(ABC):
         payload: dict[str, Any] = {"source": source, "warnings": parsed.warnings}
         if parsed.barcode is not None:
             payload |= {"barcode": parsed.barcode.barcode, "digitable_line": parsed.barcode.digitable_line}
+        if parsed.property:
+            payload["property"] = parsed.property
+        if parsed.consumer:
+            payload["consumer"] = parsed.consumer
         return RawBill(provider=self.code, account_number=account, reference_month=reference,
                        due_date=parsed.due_date, amount=parsed.amount, payload=payload)
 
@@ -133,4 +137,6 @@ class ProviderAdapter(ABC):
             digitable_line=p.get("digitable_line"),
             pix_code=p.get("pix_code"),
             document_url=p.get("document_url"),
+            property_info=PropertyInfo.model_validate(p["property"]) if p.get("property") else None,
+            consumer=ConsumerInfo.model_validate(p["consumer"]) if p.get("consumer") else None,
         )

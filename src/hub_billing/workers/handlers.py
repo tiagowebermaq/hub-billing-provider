@@ -8,11 +8,11 @@ from hub_billing.adapters.registry import get_adapter
 from hub_billing.domain.grouping import group_bills
 from hub_billing.domain.models import BatchStatus, Bill
 from hub_billing.infra.idempotency import IdempotencyGuard
-from hub_billing.infra.repository import Repository
+from hub_billing.infra.repository import AccountLink, Repository
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.rental.client import RentalClient, RentalRejected
 
-PropertyLookup = Callable[[str, str], tuple[str, str | None] | None]
+PropertyLookup = Callable[[str, str], AccountLink | None]
 
 
 async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
@@ -51,7 +51,7 @@ async def normalize(env: Envelope, guard: IdempotencyGuard, lookup: PropertyLook
         return None
     link = lookup(bill.provider, bill.account_number)
     if link is not None:
-        bill = bill.model_copy(update={"property_id": link[0], "contract_id": link[1]})
+        bill = link.apply(bill)
     return env.derive("bill.normalized", "normalizer", {"bill": bill.model_dump(mode="json")})
 
 

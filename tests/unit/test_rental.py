@@ -6,7 +6,7 @@ import pytest
 import respx
 
 from hub_billing.domain.grouping import group_bills
-from hub_billing.domain.models import BatchStatus, Bill, BillStatus, UtilityType
+from hub_billing.domain.models import BatchStatus, Bill, BillStatus, ConsumerInfo, PropertyInfo, UtilityType
 from hub_billing.infra.repository import Repository
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.rental.client import RentalClient, RentalRejected, RentalUnavailable, to_payload
@@ -40,6 +40,15 @@ def test_payload_do_lote() -> None:
     data = to_payload(batch)
     assert data["total"] == "199.80" and data["bills"][0]["utility_type"] == "TELECOM"
     assert data["bills"][0]["consumption"] is None
+    assert data["bills"][0]["property"] is None and data["bills"][0]["consumer"] is None
+
+
+def test_payload_leva_cadastro_do_imovel_e_titular() -> None:
+    b = bill("c1").model_copy(update={"property_info": PropertyInfo(address="Rua C, 1"),
+                                      "consumer": ConsumerInfo(name="Ana", document="123")})
+    [batch] = group_bills([b])
+    item = to_payload(batch)["bills"][0]
+    assert item["property"] == {"address": "Rua C, 1"} and item["consumer"] == {"name": "Ana", "document": "123"}
 
 
 @respx.mock
