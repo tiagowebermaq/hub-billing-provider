@@ -49,8 +49,11 @@ async def test_fake_adapter_full_flow() -> None:
 
 async def test_real_adapters_pending_discovery() -> None:
     with pytest.raises(NotImplementedError):
-        await get_adapter("aegea", "corsan").list_accounts(None)  # type: ignore[arg-type]
-    with pytest.raises(NotImplementedError):
         await get_adapter("vivo").authenticate(ProviderCredentials(login="u", secret="s"))
     with pytest.raises(NotImplementedError):
+        await get_adapter("vivo").resume({})
+    for code in ("cpfl", "aegea"):  # login B2C interativo: só pelo login assistido
+        with pytest.raises(NotImplementedError, match="login_portal"):
+            await get_adapter(code).authenticate(ProviderCredentials(login="u", secret="s"))
+    with pytest.raises(RuntimeError, match="cliente HTTP"):
         await get_adapter("cpfl").fetch_bills(None, ProviderAccount(account_number="1"))  # type: ignore[arg-type]

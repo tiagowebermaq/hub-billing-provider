@@ -4,9 +4,11 @@ Guarda os vínculos conta -> imóvel/contrato, as contas normalizadas e os lotes
 """
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
+from cryptography.fernet import InvalidToken
 from sqlalchemy import (
     JSON,
     Column,
@@ -24,6 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 
+from hub_billing.core.security import SecretBox
 from hub_billing.domain.models import BatchStatus, Bill, BillingBatch, BillStatus
 
 metadata = MetaData()
@@ -64,6 +67,15 @@ batches = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+provider_sessions = Table(
+    "provider_sessions", metadata,
+    Column("provider", String(32), primary_key=True),
+    Column("distributor", String(32), primary_key=True),
+    Column("data_enc", Text, nullable=False),
+    Column("expires_at", DateTime(timezone=True)),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -76,12 +88,13 @@ def make_engine(url: str) -> Engine:
 
 
 class Repository:
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, box: SecretBox | None = None) -> None:
         self.engine = engine
+        self.box = box or SecretBox("")
 
     @classmethod
-    def from_url(cls, url: str) -> Repository:
-        return cls(make_engine(url))
+    def from_url(cls, url: str, encryption_key: str = "") -> Repository:
+        return cls(make_engine(url), SecretBox(encryption_key))
 
     def create_schema(self) -> None:
         metadata.create_all(self.engine)
@@ -174,3 +187,33 @@ class Repository:
                 status=status, last_error=error, updated_at=_now()))
             if bill_status is not None:
                 conn.execute(update(bills).where(bills.c.batch_id == batch_id).values(status=bill_status))
+
+    # Sessões dos portais (tokens obtidos no login assistido), sempre cifradas ------------------
+    def save_session(self, provider: str, distributor: str | None, data: dict[str, Any],
+                     expires_at: datetime | None) -> None:
+        enc = self.box.encrypt(json.dumps(data))
+        key = (provider_sessions.c.provider == provider) & (provider_sessions.c.distributor == (distributor or ""))
+        row = {"data_enc": enc, "expires_at": expires_at, "updated_at": _now()}
+        with self.engine.begin() as conn:
+            if conn.execute(update(provider_sessions).where(key).values(**row)).rowcount == 0:
+                conn.execute(insert(provider_sessions).values(provider=provider, distributor=distributor or "", **row))
+
+    def load_session(self, provider: str, distributor: str | None) -> tuple[dict[str, Any], datetime | None] | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(provider_sessions.c.data_enc, provider_sessions.c.expires_at).where(
+                (provider_sessions.c.provider == provider)
+                & (provider_sessions.c.distributor == (distributor or "")))).first()
+        if row is None:
+            return None
+        expires = row[1].replace(tzinfo=UTC) if row[1] is not None and row[1].tzinfo is None else row[1]
+        try:
+            return json.loads(self.box.decrypt(row[0])), expires
+        except InvalidToken:  # HUB_ENCRYPTION_KEY trocada ou diferente entre API e workers
+            return None
+
+    def list_sessions(self) -> list[dict[str, Any]]:
+        """Status das sessões, sem os tokens."""
+        query = select(provider_sessions.c.provider, provider_sessions.c.distributor, provider_sessions.c.expires_at,
+                       provider_sessions.c.updated_at).order_by(provider_sessions.c.provider)
+        with self.engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(query)]
