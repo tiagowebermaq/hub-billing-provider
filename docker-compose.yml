@@ -18,7 +18,7 @@ x-hub: &hub
 services:
   api:
     <<: *hub
-    ports: ["8000:8000"]
+    ports: ["8010:8000"]
 
   worker-collector:  { <<: *hub, command: ["hub-worker", "collector"] }
   worker-normalizer: { <<: *hub, command: ["hub-worker", "normalizer"] }

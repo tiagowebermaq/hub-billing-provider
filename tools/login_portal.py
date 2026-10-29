@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("provider", choices=sorted(PORTALS))
     parser.add_argument("--distributor")
-    parser.add_argument("--hub", default="http://localhost:8000", help="endereço da API do hub")
+    parser.add_argument("--hub", default="http://localhost:8010", help="endereço da API do hub")
     parser.add_argument("--email", help="usuário do hub com a permissão providers:credentials:write")
     parser.add_argument("--timeout", type=int, default=600, help="segundos para concluir o login")
     args = parser.parse_args(argv)

@@ -24,7 +24,7 @@ logs:
 	docker compose logs -f api
 
 api:
-	.venv/bin/uvicorn hub_billing.api.app:create_app --factory --reload
+	.venv/bin/uvicorn hub_billing.api.app:create_app --factory --reload --port 8010
 
 po:
 	.venv/bin/python tools/build_po.py $(ARGS)
