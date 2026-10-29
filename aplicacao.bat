@@ -21,7 +21,6 @@ timeout /t 5 /nobreak >nul
 start "" http://localhost:%HUB_PORT%/painel
 echo.
 echo Hub rodando em http://localhost:%HUB_PORT%  (painel em /painel, documentacao da API em /docs)
-echo Login assistido nos portais:
-echo   .venv\Scripts\python.exe tools\login_portal.py cpfl --distributor rge --hub http://localhost:%HUB_PORT%
-echo   .venv\Scripts\python.exe tools\login_portal.py aegea --distributor corsan --hub http://localhost:%HUB_PORT%
+echo Para conectar RGE e Corsan: no painel, aba Portais, botao Conectar.
+echo Para parar o hub: parar.bat
 pause
