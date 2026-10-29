@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_scripts_windows_usam_crlf() -> None:
-    for name in ("iniciar.bat", "aplicacao.bat", "parar.bat"):
+    for name in ("iniciar.bat", "aplicacao.bat", "parar.bat", "resetar-senha.bat"):
         data = (ROOT / name).read_bytes()
         assert data.count(b"\n") == data.count(b"\r\n"), f"{name} precisa de quebras de linha CRLF"
 

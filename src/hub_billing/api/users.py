@@ -66,6 +66,16 @@ class UserStore:
             self.save(admin)
         return admin
 
+    def reset_admin(self, email: str, password: str) -> User:
+        """Volta o admin para o e-mail e a senha informados (os do .env), ativo e com troca de senha obrigatória."""
+        admin = self._one(users.c.is_admin.is_(True))
+        if admin is None:
+            return self.ensure_admin(email, password)
+        admin.email, admin.password_hash = email, hash_password(password)
+        admin.active, admin.must_change_password = True, True
+        self.save(admin)
+        return admin
+
     def add(self, email: str, password: str, name: str, roles: set[str]) -> User:
         if self.by_email(email):
             raise ValueError("e-mail já cadastrado")
