@@ -3,6 +3,24 @@
 Formato: `## [versão] - AAAA-MM-DD - autor`, seguido dos itens alterados.
 Política: SemVer (MAJOR = visão/escopo/arquitetura, MINOR = novo requisito/provedor/épico, PATCH = correções de texto).
 
+## [1.8.0] - 2026-10-29 - Weber
+- Versão automática após 15 PRs mergeados.
+- PR #1: Adapter Vivo, novo PO a cada 10 PRs e PO v1.2.0
+- PR #2: Importação de fatura em PDF e validação da linha digitável
+- PR #3: Persistência em PostgreSQL: vínculos conta-imóvel, contas e lotes
+- PR #4: Envio dos lotes ao sistema de aluguéis e workers de ponta a ponta
+- PR #5: Coleta automática da RGE e da Corsan pelas APIs dos portais
+- PR #6: Arquivos iniciar e aplicacao para Windows e Ubuntu
+- PR #7: Painel de administração web em /painel
+- PR #8: Cadastro do imóvel e do titular nas contas
+- PR #9: Painel no estilo verde-petróleo, claro e escuro
+- PR #10: Hub passa a usar a porta 8010 e avisa se a porta estiver ocupada
+- PR #11: Usuários no banco e troca de senha obrigatória no painel
+- PR #12: parar.bat e parar.sh para fechar o hub
+- PR #13: iniciar.bat limpa sobras de instalações interrompidas
+- PR #14: Conectar RGE e Corsan pelo painel
+- PR #15: resetar-senha.bat para voltar o admin ao .env
+
 ## [1.7.0] - 2026-10-29 - Weber
 - Versão automática após 14 PRs mergeados.
 - PR #1: Adapter Vivo, novo PO a cada 10 PRs e PO v1.2.0
