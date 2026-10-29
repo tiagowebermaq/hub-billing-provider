@@ -324,6 +324,10 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
         await app.state.publisher(topology.EX_COLLECT, f"collect.request.{body.provider}", env)
         return {"collection_id": env.message_id, "correlation_id": env.correlation_id}
 
+    @app.get("/api/v1/collections")
+    async def list_collections(_: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))]) -> list[dict[str, object]]:
+        return db.list_runs()
+
     @app.post("/api/v1/bills/import", status_code=202)
     async def import_bill(
         _: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))],

@@ -215,3 +215,34 @@ def test_sessao_cifrada_e_chave_errada(repo: Repository) -> None:
     assert repo.load_session("aegea", None) is None
     r1.save_session("cpfl", "rge", {"refresh_token": "novo"}, None)
     assert [s["provider"] for s in r1.list_sessions()] == ["cpfl"]
+
+
+@respx.mock
+async def test_coletor_registra_cada_coleta_e_acha_a_sessao_sem_distribuidora(repo: Repository) -> None:
+    respx.get(f"{AEGEA_API}/cliente/matriculas").mock(return_value=httpx.Response(200, json=MATRICULAS))
+    respx.get(f"{AEGEA_API}/fatura/debito-totais/matricula").mock(return_value=httpx.Response(200, json=DEBITOS))
+    sem_dist = Envelope(type="collect.request", producer="api", payload={"provider": "aegea"})
+    async with httpx.AsyncClient() as http:
+        await collect(sem_dist, repo, http)
+        assert repo.list_runs()[0]["status"] == "login"
+        repo.save_session("aegea", "corsan", aegea_session(), None)
+        outs = await collect(sem_dist, repo, http, {"apim_key": "k"})  # usa a única sessão salva
+        assert outs and {o.payload["distributor"] for o in outs} == {"corsan"}
+        run = repo.list_runs()[0]
+        assert (run["status"], run["distributor"], run["bills"]) == ("ok", "corsan", len(outs)) and run["accounts"] >= 1
+        nada = sem_dist.model_copy(update={"message_id": "m2", "payload": {"provider": "aegea", "reference_month": "1999-01"}})
+        assert await collect(nada, repo, http, {"apim_key": "k"}) == []
+        assert "nenhuma conta em aberto" in repo.list_runs(1)[0]["message"]
+        respx.get(f"{AEGEA_API}/cliente/matriculas").mock(return_value=httpx.Response(500))
+        falha = sem_dist.model_copy(update={"message_id": "m3"})
+        with pytest.raises(httpx.HTTPStatusError):
+            await collect(falha, repo, http, {"apim_key": "k"})
+        assert [r["message"] for r in repo.list_runs() if r["id"] == "m3"] == ["o portal respondeu HTTP 500"]
+        repo.save_session("aegea", "outra", aegea_session(), None)
+        assert repo.only_session("aegea") is None  # duas sessões: precisa dizer qual
+
+
+def test_motivo_de_falha_legivel() -> None:
+    from hub_billing.workers.handlers import _reason
+    assert "ConnectError" in _reason(httpx.ConnectError("x"))
+    assert _reason(ValueError("valor ruim")) == "valor ruim" and _reason(RuntimeError()) == "RuntimeError"

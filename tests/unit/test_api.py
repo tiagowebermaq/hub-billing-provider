@@ -69,6 +69,10 @@ def test_collection_publishes_with_correlation_id(
     assert (exchange, key, env.type, env.correlation_id) == ("hub.collect", "collect.request.cpfl",
                                                              "collect.request", "fluxo-1")
     assert client.post("/api/v1/collections", json={"provider": "x"}, headers=admin_headers).status_code == 422
+    assert client.get("/api/v1/collections", headers=admin_headers).json() == []
+    client.app.state.repo.record_run("r1", "cpfl", "rge", "login", message="sessão expirada")  # type: ignore[attr-defined]
+    [run] = client.get("/api/v1/collections", headers=admin_headers).json()
+    assert (run["provider"], run["status"], run["message"]) == ("cpfl", "login", "sessão expirada")
 
 
 def test_deactivated_user_token_is_rejected(client: TestClient, admin_headers: dict[str, str]) -> None:

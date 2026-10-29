@@ -15,6 +15,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     Engine,
+    Integer,
     MetaData,
     String,
     Table,
@@ -85,6 +86,18 @@ provider_sessions = Table(
     Column("data_enc", Text, nullable=False),
     Column("expires_at", DateTime(timezone=True)),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+collection_runs = Table(
+    "collection_runs", metadata,
+    Column("id", String(64), primary_key=True),  # message_id do collect.request
+    Column("provider", String(32), nullable=False),
+    Column("distributor", String(32), nullable=False, default=""),
+    Column("status", String(16), nullable=False),  # ok | login | erro
+    Column("accounts", Integer, nullable=False, default=0),
+    Column("bills", Integer, nullable=False, default=0),
+    Column("message", Text),
+    Column("finished_at", DateTime(timezone=True), nullable=False),
 )
 
 users = Table(
@@ -271,6 +284,27 @@ class Repository:
             return json.loads(self.box.decrypt(row[0])), expires
         except InvalidToken:  # HUB_ENCRYPTION_KEY trocada ou diferente entre API e workers
             return None
+
+    def only_session(self, provider: str) -> str | None:
+        """Distribuidora da única sessão salva do portal, para coletar sem informar a distribuidora."""
+        with self.engine.connect() as conn:
+            rows = conn.execute(select(provider_sessions.c.distributor).where(
+                provider_sessions.c.provider == provider)).all()
+        return rows[0][0] if len(rows) == 1 else None
+
+    # Histórico das coletas, para o painel mostrar o que aconteceu em cada uma ------------------
+    def record_run(self, run_id: str, provider: str, distributor: str | None, status: str, accounts: int = 0,
+                   bills: int = 0, message: str | None = None) -> None:
+        row = {"provider": provider, "distributor": distributor or "", "status": status, "accounts": accounts,
+               "bills": bills, "message": message, "finished_at": _now()}
+        with self.engine.begin() as conn:
+            if conn.execute(update(collection_runs).where(collection_runs.c.id == run_id).values(**row)).rowcount == 0:
+                conn.execute(insert(collection_runs).values(id=run_id, **row))
+
+    def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        query = select(collection_runs).order_by(collection_runs.c.finished_at.desc()).limit(limit)
+        with self.engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(query)]
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """Status das sessões, sem os tokens."""
