@@ -1,6 +1,7 @@
 """Integração aio-pika: declara topologia, publica e consome com ack manual, retry e DLQ."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -60,3 +61,24 @@ async def consume(channel: AbstractChannel, queue_name: str, handler: Handler, p
             correlation.reset(token)
 
     await queue.consume(on_message)
+
+
+class RabbitPublisher:
+    """Publisher da API: conecta no RabbitMQ na primeira mensagem e reaproveita a conexão (reconecta sozinha)."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self._channel: AbstractChannel | None = None
+        self._lock = asyncio.Lock()
+
+    async def _ready(self) -> AbstractChannel:
+        async with self._lock:
+            if self._channel is None or self._channel.is_closed:
+                connection = await aio_pika.connect_robust(self.url)
+                channel = await connection.channel()
+                await declare(channel)
+                self._channel = channel
+            return self._channel
+
+    async def __call__(self, exchange: str, routing_key: str, env: Envelope) -> None:
+        await publish(await self._ready(), exchange, routing_key, env)

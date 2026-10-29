@@ -27,6 +27,7 @@ from hub_billing.domain.permissions import ROLE_DEFAULTS, Permission
 from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
+from hub_billing.messaging.rabbit import RabbitPublisher
 
 PAINEL_HTML = files("hub_billing.web").joinpath("painel.html").read_text(encoding="utf-8")
 
@@ -36,7 +37,7 @@ class Publisher(Protocol):
 
 
 class MemoryPublisher:
-    """Publisher usado em desenvolvimento e testes; em produção é trocado pelo RabbitMQ."""
+    """Publisher dos testes: guarda as mensagens em memória. O hub de verdade usa create_production_app (RabbitMQ)."""
 
     def __init__(self) -> None:
         self.sent: list[tuple[str, str, Envelope]] = []
@@ -133,6 +134,12 @@ class CollectionIn(BaseModel):
     distributor: str | None = None
     account_number: str | None = None
     reference_month: str | None = None
+
+
+def create_production_app() -> FastAPI:
+    """Fábrica usada pelo uvicorn no aplicacao.bat/.sh e no Docker: a API publica no RabbitMQ, onde os workers ouvem."""
+    settings = get_settings()
+    return create_app(settings, RabbitPublisher(settings.rabbitmq_url))
 
 
 def create_app(settings: Settings | None = None, publisher: Publisher | None = None,

@@ -19,3 +19,10 @@ def test_parar_fecha_workers_e_api_do_hub() -> None:
 def test_painel_abre_no_navegador_padrao() -> None:
     bat = (ROOT / "aplicacao.bat").read_text(encoding="utf-8")
     assert 'start "" http://localhost:%HUB_PORT%/painel' in bat and "abrir_painel" not in bat
+
+
+def test_api_sobe_publicando_no_rabbitmq() -> None:
+    assert "hub_billing.api.app:create_production_app" in (ROOT / "aplicacao.bat").read_text(encoding="utf-8")
+    for script in ("aplicacao.sh", "docker/Dockerfile"):  # fora da imagem de testes do Docker
+        if (ROOT / script).exists():
+            assert "hub_billing.api.app:create_production_app" in (ROOT / script).read_text(encoding="utf-8")

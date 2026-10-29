@@ -18,4 +18,4 @@ FROM base AS runtime
 RUN pip install . && useradd --create-home hub
 USER hub
 EXPOSE 8000
-CMD ["uvicorn", "hub_billing.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "hub_billing.api.app:create_production_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
