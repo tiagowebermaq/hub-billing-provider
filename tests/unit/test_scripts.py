@@ -15,7 +15,7 @@ def test_parar_fecha_workers_e_api_do_hub() -> None:
     assert "uvicorn.exe" not in bat  # não derruba a API de outros projetos que usam uvicorn
     # janelas fechadas pelo comando (hub-worker.exe / hub_billing.api.app), não só pelo título, que no Terminal do
     # Windows 11 não pertence ao cmd.exe; o próprio PowerShell que procura fica de fora
-    assert "Get-CimInstance Win32_Process" in bat and "hub-worker\\.exe|hub_billing\\.api\\.app" in bat
+    assert "Get-CimInstance Win32_Process" in bat and "hub-worker\\.exe|hub_billing\\.api\\.app|aplicacao\\.bat" in bat
     assert "$_.ProcessId -ne $PID" in bat and "/T /F" in bat
     assert "parar.bat" in (ROOT / "iniciar.bat").read_text(encoding="utf-8")
 
@@ -23,6 +23,7 @@ def test_parar_fecha_workers_e_api_do_hub() -> None:
 def test_painel_abre_no_navegador_padrao() -> None:
     bat = (ROOT / "aplicacao.bat").read_text(encoding="utf-8")
     assert 'start "" http://localhost:%HUB_PORT%/painel' in bat and "abrir_painel" not in bat
+    assert bat.rstrip().endswith("timeout /t 15 >nul")  # sem erro, a janela de início fecha sozinha
 
 
 def test_api_sobe_publicando_no_rabbitmq() -> None:

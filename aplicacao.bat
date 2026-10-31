@@ -24,4 +24,5 @@ echo.
 echo Hub rodando em http://localhost:%HUB_PORT%  (painel em /painel, documentacao da API em /docs)
 echo Para conectar RGE e Corsan: no painel, aba Portais, botao Conectar.
 echo Para parar o hub: parar.bat
-pause
+echo Esta janela fecha sozinha em 15 segundos.
+timeout /t 15 >nul
