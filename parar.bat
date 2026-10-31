@@ -6,6 +6,9 @@ cd /d "%~dp0"
 if "%HUB_PORT%"=="" set HUB_PORT=8010
 
 echo == Fechando as janelas do hub (API e workers)
+REM Fecha pelo comando de cada janela (cmd /k ...hub-worker.exe / ...hub_billing.api.app), com tudo que ela abriu.
+REM Funciona também no Terminal do Windows 11, onde o título da janela não pertence ao cmd.exe.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'hub-worker\.exe|hub_billing\.api\.app' } | ForEach-Object { taskkill /PID $_.ProcessId /T /F 2>$null | Out-Null }"
 taskkill /FI "WINDOWTITLE eq Hub API*" /FI "IMAGENAME eq cmd.exe" /T /F >nul 2>nul
 for %%W in (collector normalizer grouper dispatcher webhooks) do taskkill /FI "WINDOWTITLE eq Hub %%W*" /FI "IMAGENAME eq cmd.exe" /T /F >nul 2>nul
 taskkill /IM hub-worker.exe /F >nul 2>nul

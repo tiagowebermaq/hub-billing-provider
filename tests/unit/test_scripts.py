@@ -13,6 +13,10 @@ def test_parar_fecha_workers_e_api_do_hub() -> None:
     bat = (ROOT / "parar.bat").read_text(encoding="utf-8")
     assert "hub-worker.exe" in bat and "Hub API" in bat and "docker compose stop" in bat
     assert "uvicorn.exe" not in bat  # não derruba a API de outros projetos que usam uvicorn
+    # janelas fechadas pelo comando (hub-worker.exe / hub_billing.api.app), não só pelo título, que no Terminal do
+    # Windows 11 não pertence ao cmd.exe; o próprio PowerShell que procura fica de fora
+    assert "Get-CimInstance Win32_Process" in bat and "hub-worker\\.exe|hub_billing\\.api\\.app" in bat
+    assert "$_.ProcessId -ne $PID" in bat and "/T /F" in bat
     assert "parar.bat" in (ROOT / "iniciar.bat").read_text(encoding="utf-8")
 
 
