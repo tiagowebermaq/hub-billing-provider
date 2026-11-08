@@ -283,20 +283,23 @@ a.link:hover,button.link:hover{text-decoration:underline}
         <div class="msg" id="m-email"></div>
       </div>
       <div class="card" id="email-config">
-        <h2>Acesso à caixa (IMAP)</h2>
+        <h2>Acesso à caixa</h2>
         <form class="row" id="f-email">
-          <label class="wide">Servidor IMAP<input name="host" placeholder="ex.: imap.heimber.com.br" required></label>
+          <label>Receber por<select name="protocol"><option value="imap">IMAP</option><option value="pop3">POP3 (quando o provedor não tem IMAP)</option></select></label>
+          <label class="wide">Servidor<input name="host" placeholder="ex.: mail.webermaq.com" required></label>
           <label>Porta<input name="port" type="number" value="993" min="1" max="65535"></label>
           <label class="wide">Usuário<input name="username" placeholder="41u6u31@heimber.com.br" required></label>
           <label>Senha<input name="password" type="password" autocomplete="new-password" placeholder="mantém a salva"></label>
-          <label>Pasta<input name="folder" value="INBOX"></label>
-          <label>Mover lidos para<input name="processed_folder" placeholder="opcional"></label>
+          <label class="so-imap">Pasta<input name="folder" value="INBOX"></label>
+          <label class="so-imap">Mover lidos para<input name="processed_folder" placeholder="opcional"></label>
+          <label class="so-pop3">Apagar do servidor depois de (dias)<input name="delete_after_days" type="number" value="0" min="0" title="0 = nunca apaga"></label>
           <label>Verificar a cada (min)<input name="poll_minutes" type="number" value="5" min="1"></label>
           <label class="wide">Senhas dos PDFs<input name="pdf_passwords" placeholder="separadas por vírgula; vazio mantém"></label>
           <label><span>SSL</span><input name="use_ssl" type="checkbox" checked style="min-width:auto;width:auto"></label>
           <button class="pri" type="submit">Salvar</button>
         </form>
         <p class="msg">As senhas ficam cifradas no banco e não voltam para a tela. Sem cadastro aqui, o hub usa o que estiver no .env (HUB_EMAIL_...).</p>
+        <p class="msg so-pop3">POP3: o hub guarda quais e-mails já leu. Com 0 dias nada é apagado do servidor; com N dias, só os e-mails que chegaram depois de ligar o hub são apagados, N dias depois de lidos.</p>
         <div class="msg" id="m-f-email"></div>
       </div>
       <div class="card scroll">
@@ -460,7 +463,8 @@ async function loadEmail() {
   $("#email-config").classList.toggle("hide", !caixa);
   if (caixa) {
     const c = caixa.config, st = caixa.state, f = $("#f-email");
-    for (const k of ["host", "port", "username", "folder", "processed_folder"]) f.elements[k].value = c[k] ?? "";
+    for (const k of ["protocol", "host", "port", "username", "folder", "processed_folder", "delete_after_days"]) f.elements[k].value = c[k] ?? "";
+    protocolo();
     f.elements.poll_minutes.value = Math.round(c.poll_seconds / 60);
     f.elements.use_ssl.checked = c.use_ssl;
     f.elements.password.placeholder = c.has_password ? "mantém a salva" : "senha da caixa";
@@ -680,7 +684,7 @@ $("#f-coleta").addEventListener("submit", async e => {
 $("#f-email").addEventListener("submit", async e => {
   e.preventDefault();
   const f = e.target, v = k => f.elements[k].value.trim();
-  const body = {host: v("host"), port: Number(v("port") || 993), username: v("username"), use_ssl: f.elements.use_ssl.checked,
+  const body = {protocol: v("protocol"), delete_after_days: Number(v("delete_after_days") || 0), host: v("host"), port: Number(v("port") || 993), username: v("username"), use_ssl: f.elements.use_ssl.checked,
     folder: v("folder") || "INBOX", processed_folder: v("processed_folder"), poll_seconds: Math.max(1, Number(v("poll_minutes") || 5)) * 60};
   if (v("password")) body.password = v("password");
   if (v("pdf_passwords")) body.pdf_passwords = v("pdf_passwords").split(",");
@@ -688,6 +692,17 @@ $("#f-email").addEventListener("submit", async e => {
     say("#m-f-email", "Caixa salva. Use Testar conexão para conferir.", "ok"); loadEmail(); }
   catch (err) { say("#m-f-email", err.message, "bad"); }
 });
+function protocolo() {
+  const pop = $("#f-email").elements.protocol.value === "pop3";
+  document.querySelectorAll(".so-imap").forEach(e => e.classList.toggle("hide", pop));
+  document.querySelectorAll(".so-pop3").forEach(e => e.classList.toggle("hide", !pop));
+}
+$("#f-email").elements.protocol.addEventListener("change", e => {
+  const porta = e.target.form.elements.port;
+  if (["", "993", "995"].includes(porta.value)) porta.value = e.target.value === "pop3" ? "995" : "993";
+  protocolo();
+});
+protocolo();
 $("#email-testar").addEventListener("click", async () => {
   say("#m-email", "Conectando na caixa...");
   try { const r = await api("/api/v1/mailbox/test", {method: "POST"}); say("#m-email", r.ok ? `Tudo certo, ${r.detail}.` : `Não conectou: ${r.detail}`, r.ok ? "ok" : "bad"); }

@@ -19,7 +19,7 @@ from email import policy
 from email.message import EmailMessage, Message
 from email.parser import BytesParser
 from email.utils import getaddresses, parsedate_to_datetime
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -32,15 +32,17 @@ DEFAULT_ADDRESS = "41u6u31@heimber.com.br"
 
 
 class MailboxConfig(BaseModel):
-    """Acesso IMAP à caixa que recebe as faturas. Vem do painel (aba E-mail) ou, sem cadastro lá, do .env."""
+    """Acesso à caixa que recebe as faturas (IMAP ou POP3). Vem do painel (aba E-mail) ou, sem cadastro lá, do .env."""
 
+    protocol: Literal["imap", "pop3"] = "imap"
     host: str = ""
     port: int = 993
     username: str = DEFAULT_ADDRESS
     password: str = ""
     use_ssl: bool = True
     folder: str = "INBOX"
-    processed_folder: str = ""  # vazio: só marca como lido
+    processed_folder: str = ""  # IMAP: vazio só marca como lido
+    delete_after_days: int = 0  # POP3: apaga do servidor N dias depois de lido; 0 = nunca apaga
     poll_seconds: int = 300
     pdf_passwords: list[str] = Field(default_factory=list)
 

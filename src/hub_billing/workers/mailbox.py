@@ -21,7 +21,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from hub_billing.adapters.email_inbox.adapter import EmailAdapter, MailboxConfig, parse_message
-from hub_billing.adapters.email_inbox.imap import MailboxUnavailable, MailClient
+from hub_billing.adapters.email_inbox.imap import ImapMailClient, MailboxUnavailable, MailClient
+from hub_billing.adapters.email_inbox.pop3 import Pop3MailClient
 from hub_billing.adapters.registry import get_adapter
 from hub_billing.core import correlation
 from hub_billing.core.config import Settings
@@ -46,10 +47,21 @@ def resolve_config(repo: Repository, settings: Settings) -> MailboxConfig:
     if stored is not None:
         return MailboxConfig.model_validate(stored)
     return MailboxConfig(
+        protocol="pop3" if settings.email_protocol.lower() == "pop3" else "imap",
+        delete_after_days=settings.email_delete_after_days,
         host=settings.email_imap_host, port=settings.email_imap_port, use_ssl=settings.email_imap_ssl,
         username=settings.email_username, password=settings.email_password, folder=settings.email_folder,
         processed_folder=settings.email_processed_folder, poll_seconds=settings.email_poll_seconds,
         pdf_passwords=[p.strip() for p in settings.email_pdf_passwords.split(",") if p.strip()])
+
+
+def client_factory(repo: Repository) -> ClientFactory:
+    """Cliente da caixa conforme o protocolo cadastrado: IMAP ou POP3 (que guarda no banco o que já leu)."""
+
+    def make(config: MailboxConfig) -> MailClient:
+        return Pop3MailClient(config, repo) if config.protocol == "pop3" else ImapMailClient(config)
+
+    return make
 
 
 def backoff_seconds(failures: int, base: float = BACKOFF_BASE_SECONDS, cap: float = BACKOFF_MAX_SECONDS) -> float:

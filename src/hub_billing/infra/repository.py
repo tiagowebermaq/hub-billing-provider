@@ -22,6 +22,7 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    delete,
     insert,
     inspect,
     select,
@@ -42,6 +43,7 @@ from hub_billing.domain.models import (
 )
 
 metadata = MetaData()
+BASELINE_UID = "__baseline__"  # marca que o hub já conectou na caixa POP3, mesmo se ela estava vazia
 
 account_links = Table(
     "account_links", metadata,
@@ -126,6 +128,14 @@ inbound_emails = Table(  # e-mails recebidos na caixa de faturas, com o arquivo 
     Column("raw", LargeBinary, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False, index=True),
+)
+
+pop3_messages = Table(  # POP3 não tem "lido": o hub guarda quais mensagens (UIDL) da caixa já leu
+    "pop3_messages", metadata,
+    Column("account", String(254), primary_key=True),
+    Column("uid", String(128), primary_key=True),
+    Column("processed_at", DateTime(timezone=True)),  # vazio: já estava na caixa quando o hub ligou, ainda não lida
+    Column("deletable", Boolean, nullable=False, default=True),  # as que já estavam na caixa nunca são apagadas
 )
 
 mailbox = Table(  # configuração da caixa (cifrada) feita no painel e a saúde da última verificação
@@ -480,3 +490,33 @@ class Repository:
         data = dict(row._mapping)
         data["from_panel"] = data.pop("config_enc") is not None
         return data
+
+    # Mensagens POP3 já lidas -----------------------------------------------------------------
+    def pop3_state(self, account: str) -> dict[str, tuple[datetime | None, bool]] | None:
+        """UIDL -> (lida em, pode apagar). None quando o hub nunca conectou nesta caixa."""
+        with self.engine.connect() as conn:
+            rows = conn.execute(select(pop3_messages.c.uid, pop3_messages.c.processed_at, pop3_messages.c.deletable)
+                                .where(pop3_messages.c.account == account)).all()
+        if not rows:
+            return None
+        return {uid: (at.replace(tzinfo=UTC) if at is not None and at.tzinfo is None else at, bool(deletable))
+                for uid, at, deletable in rows}
+
+    def pop3_baseline(self, account: str, uids: list[str]) -> None:
+        """Primeira conexão: registra o que já estava na caixa (será lido, mas nunca apagado pelo hub)."""
+        with self.engine.begin() as conn:
+            for uid in [BASELINE_UID, *uids]:
+                conn.execute(insert(pop3_messages).values(account=account, uid=uid, processed_at=None, deletable=False))
+
+    def pop3_mark(self, account: str, uid: str) -> None:
+        key = (pop3_messages.c.account == account) & (pop3_messages.c.uid == uid)
+        with self.engine.begin() as conn:
+            if conn.execute(update(pop3_messages).where(key).values(processed_at=_now())).rowcount == 0:
+                conn.execute(insert(pop3_messages).values(account=account, uid=uid, processed_at=_now(), deletable=True))
+
+    def pop3_forget(self, account: str, uids: list[str]) -> None:
+        """Mensagens apagadas do servidor: não precisam mais de registro."""
+        if uids:
+            with self.engine.begin() as conn:
+                conn.execute(delete(pop3_messages).where((pop3_messages.c.account == account)
+                                                         & pop3_messages.c.uid.in_(uids)))

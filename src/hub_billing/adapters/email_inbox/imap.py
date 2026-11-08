@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import imaplib
+import poplib
 import socket
 import ssl
 from typing import Protocol
@@ -21,9 +22,11 @@ class MailClient(Protocol):
     def close(self) -> None: ...
 
 
-def _reason(exc: BaseException) -> str:
+def reason(exc: BaseException) -> str:
+    """Mensagem em português para falhas de IMAP, POP3, rede e SSL."""
     text = str(exc)
-    if isinstance(exc, imaplib.IMAP4.error) and ("AUTH" in text.upper() or "LOGIN" in text.upper()):
+    auth_error = isinstance(exc, imaplib.IMAP4.error | poplib.error_proto)
+    if auth_error and any(w in text.upper() for w in ("AUTH", "LOGIN", "PASS", "USER", "PASSWORD")):
         return "usuário ou senha do e-mail recusados pelo servidor"
     if isinstance(exc, socket.gaierror):
         return "servidor de e-mail não encontrado: confira o endereço IMAP"
@@ -49,7 +52,7 @@ class ImapMailClient:
         try:
             typ, data = conn.uid(*args)
         except (imaplib.IMAP4.error, OSError) as exc:
-            raise MailboxUnavailable(_reason(exc)) from exc
+            raise MailboxUnavailable(reason(exc)) from exc
         if typ != "OK":
             raise MailboxUnavailable(f"o servidor de e-mail recusou {args[0]}: {data!r}")
         return list(data)
@@ -70,7 +73,7 @@ class ImapMailClient:
             conn.login(cfg.username, cfg.password)
             typ, data = conn.select(f'"{cfg.folder}"')
         except (imaplib.IMAP4.error, OSError) as exc:
-            raise MailboxUnavailable(_reason(exc)) from exc
+            raise MailboxUnavailable(reason(exc)) from exc
         if typ != "OK":
             raise MailboxUnavailable(f"pasta '{cfg.folder}' não encontrada na caixa de e-mail")
         self._conn = conn

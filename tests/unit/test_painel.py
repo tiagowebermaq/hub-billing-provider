@@ -65,5 +65,5 @@ def test_painel_tem_aba_de_email_com_cadastro_e_reprocessar(client: TestClient) 
     html = client.get("/painel").text
     assert 'data-tab="email"' in html and 'data-view="email"' in html and 'id="f-email"' in html
     for trecho in ("/api/v1/mailbox", "/api/v1/mailbox/test", "/api/v1/mailbox/check", "/api/v1/mailbox/emails",
-                   "/reprocess", 'type="password"', "41u6u31@heimber.com.br"):
+                   "/reprocess", 'type="password"', "41u6u31@heimber.com.br", 'value="pop3"', "delete_after_days"):
         assert trecho in html, trecho

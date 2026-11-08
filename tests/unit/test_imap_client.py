@@ -80,7 +80,7 @@ def test_erros_viram_mensagens_claras() -> None:
 
 
 def test_razoes() -> None:
-    assert "não encontrado" in imap._reason(socket.gaierror("x"))
-    assert "a tempo" in imap._reason(TimeoutError())
-    assert "SSL" in imap._reason(imap.ssl.SSLError("x"))
-    assert imap._reason(RuntimeError("outra")) == "outra"
+    assert "não encontrado" in imap.reason(socket.gaierror("x"))
+    assert "a tempo" in imap.reason(TimeoutError())
+    assert "SSL" in imap.reason(imap.ssl.SSLError("x"))
+    assert imap.reason(RuntimeError("outra")) == "outra"

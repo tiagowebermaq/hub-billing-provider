@@ -38,6 +38,15 @@ def test_cadastro_da_caixa_sem_devolver_senhas(client: TestClient, admin_headers
     assert again["config"]["pdf_passwords"] == 1
 
 
+def test_cadastro_pop3(client: TestClient, admin_headers: dict[str, str]) -> None:
+    body = {**BOX, "protocol": "pop3", "host": "mail.webermaq.com", "port": 995, "delete_after_days": 10}
+    assert client.put("/api/v1/mailbox", headers=admin_headers, json=body).status_code == 204
+    cfg = client.get("/api/v1/mailbox", headers=admin_headers).json()["config"]
+    assert (cfg["protocol"], cfg["port"], cfg["delete_after_days"]) == ("pop3", 995, 10)
+    assert client.put("/api/v1/mailbox", headers=admin_headers, json={**body, "delete_after_days": -1}).status_code == 422
+    assert client.put("/api/v1/mailbox", headers=admin_headers, json={**body, "protocol": "smtp"}).status_code == 422
+
+
 def test_cadastro_valida_campos(client: TestClient, admin_headers: dict[str, str]) -> None:
     assert client.put("/api/v1/mailbox", headers=admin_headers, json={**BOX, "host": " "}).status_code == 422
     assert client.put("/api/v1/mailbox", headers=admin_headers, json={**BOX, "poll_seconds": 10}).status_code == 422

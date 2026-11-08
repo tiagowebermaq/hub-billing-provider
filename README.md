@@ -98,11 +98,13 @@ Depois dispare a coleta na mesma aba ou por `POST /api/v1/collections`. A senha 
 
 ## Faturas por e-mail (caixa 41u6u31@heimber.com.br)
 As concessionárias mandam a fatura por e-mail (ou alguém encaminha) para a caixa do hub. No painel, aba **E-mail**,
-cadastre o servidor IMAP, o usuário e a senha da caixa (ficam cifrados no banco; sem cadastro lá, vale o `.env`,
+confira o servidor (já vem POP3 `mail.webermaq.com`, porta 995, SSL, apagando do servidor 10 dias depois de lido;
+IMAP também é aceito), informe a senha da caixa (ficam cifrados no banco; sem cadastro lá, vale o `.env`,
 variáveis `HUB_EMAIL_...`) e clique em **Testar conexão**. Se as faturas vierem em PDF com senha (ex.: início do CPF),
 cadastre as senhas no mesmo formulário.
 
-- Worker **mailbox**: a cada 5 min (ou ao clicar **Verificar agora**, fila `email.poll`) baixa os e-mails não lidos,
+- Worker **mailbox**: a cada 5 min (ou ao clicar **Verificar agora**, fila `email.poll`) baixa os e-mails novos (no POP3 o
+  hub guarda quais já leu; os que já estavam na caixa ao ligar são lidos, mas nunca apagados),
   guarda cada um (o Message-ID impede duplicar) e publica `email.received` com um Correlation ID novo. Só marca como
   lido depois que o e-mail está guardado e na fila.
 - Worker **mailreader**: lê os PDFs com o adapter de e-mail (`adapters/email_inbox`), identifica RGE/CPFL, Corsan/Aegea

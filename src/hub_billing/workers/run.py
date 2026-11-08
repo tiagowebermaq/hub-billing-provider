@@ -8,7 +8,7 @@ import aio_pika
 import httpx
 from redis.asyncio import Redis
 
-from hub_billing.adapters.email_inbox import EmailAdapter, ImapMailClient
+from hub_billing.adapters.email_inbox import EmailAdapter
 from hub_billing.adapters.registry import load_builtin
 from hub_billing.core import logging as hub_logging
 from hub_billing.core.config import get_settings
@@ -50,7 +50,7 @@ async def _run(name: str) -> None:
     wake = asyncio.Event()
     forever: asyncio.Future[None] = asyncio.get_running_loop().create_future()
     if name == "mailbox":  # laço próprio de leitura da caixa; a fila email.poll só antecipa a próxima volta
-        forever = asyncio.create_task(mailbox.run_poller(repo, settings, ImapMailClient, publish, wake))
+        forever = asyncio.create_task(mailbox.run_poller(repo, settings, mailbox.client_factory(repo), publish, wake))
 
     async def handler(env: Envelope) -> None:
         extra = {"extra_fields": {"worker": name, "message_id": env.message_id}}

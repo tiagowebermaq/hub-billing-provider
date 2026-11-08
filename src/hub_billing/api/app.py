@@ -5,7 +5,7 @@ import secrets
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from importlib.resources import files
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,7 +13,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 
 from hub_billing import __version__
-from hub_billing.adapters.email_inbox import ImapMailClient, MailboxConfig, MailboxUnavailable
+from hub_billing.adapters.email_inbox import MailboxConfig, MailboxUnavailable
 from hub_billing.adapters.registry import available, get_adapter, load_builtin
 from hub_billing.api.deps import current_user, get_app_settings, get_store, require
 from hub_billing.api.users import User, UserStore
@@ -30,7 +30,7 @@ from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.messaging.rabbit import RabbitPublisher
-from hub_billing.workers.mailbox import ClientFactory, resolve_config
+from hub_billing.workers.mailbox import ClientFactory, client_factory, resolve_config
 
 PAINEL_HTML = files("hub_billing.web").joinpath("painel.html").read_text(encoding="utf-8")
 
@@ -135,6 +135,7 @@ class CloseBatchesIn(BaseModel):
 class MailboxIn(BaseModel):
     """Cadastro da caixa de faturas. Senha vazia (ou omitida) mantém a que já está salva."""
 
+    protocol: Literal["imap", "pop3"] = "imap"
     host: str
     port: int = 993
     username: str
@@ -142,6 +143,7 @@ class MailboxIn(BaseModel):
     use_ssl: bool = True
     folder: str = "INBOX"
     processed_folder: str = ""
+    delete_after_days: int = 0
     poll_seconds: int = 300
     pdf_passwords: list[str] | None = None
 
@@ -178,7 +180,7 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
             datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None),
         portal_capture)
     db: Repository = app.state.repo
-    mail_factory: ClientFactory = mail_client or ImapMailClient
+    mail_factory: ClientFactory = mail_client or client_factory(db)
 
     @app.middleware("http")
     async def correlation_middleware(
@@ -459,6 +461,8 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
             raise HTTPException(422, "informe o servidor IMAP e o usuário da caixa")
         if body.poll_seconds < 60:
             raise HTTPException(422, "o intervalo mínimo entre verificações é de 60 segundos")
+        if body.delete_after_days < 0:
+            raise HTTPException(422, "dias para apagar do servidor: use 0 (nunca) ou mais")
         current = resolve_config(db, settings)
         data = body.model_dump()
         data["host"], data["username"] = body.host.strip(), body.username.strip()
@@ -486,7 +490,8 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
             unseen = await asyncio.to_thread(probe)
         except MailboxUnavailable as exc:
             return {"ok": False, "detail": str(exc)}
-        return {"ok": True, "unseen": unseen, "detail": f"conectado: {unseen} e-mail(s) não lido(s) em {config.folder}"}
+        where = config.folder if config.protocol == "imap" else "na caixa (POP3)"
+        return {"ok": True, "unseen": unseen, "detail": f"conectado: {unseen} e-mail(s) para ler {where}"}
 
     @app.post("/api/v1/mailbox/check", status_code=202)
     async def check_mailbox(_: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))]) -> dict[str, str]:
