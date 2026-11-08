@@ -123,15 +123,17 @@ def test_config_do_env_quando_o_painel_nao_cadastrou(repo: Repository) -> None:
 
 async def test_run_poller_acorda_com_verificar_agora(repo: Repository) -> None:
     repo.save_mailbox_config(CONFIG.model_copy(update={"poll_seconds": 3600}).model_dump())
-    box = FakeMailClient({})
     wake = asyncio.Event()
-    task = asyncio.create_task(mailbox.run_poller(repo, Settings(_env_file=None), box, Sent(), wake, cycles=2))
-    for _ in range(50):
-        await asyncio.sleep(0.01)
-        if box.opened == 1:
-            break
-    wake.set()
-    await asyncio.wait_for(task, 2)
+    loop = asyncio.get_running_loop()
+
+    class ClicaDuranteAVerificacao(FakeMailClient):
+        def open(self) -> None:
+            super().open()
+            if self.opened == 1:  # "Verificar agora" chega enquanto a primeira verificação roda
+                loop.call_soon_threadsafe(wake.set)
+
+    box = ClicaDuranteAVerificacao({})
+    await asyncio.wait_for(mailbox.run_poller(repo, Settings(_env_file=None), box, Sent(), wake, cycles=2), 10)
     assert box.opened == 2
 
 

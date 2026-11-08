@@ -141,6 +141,7 @@ async def run_poller(repo: Repository, settings: Settings, factory: ClientFactor
     done = 0
     failures = 0
     while cycles is None or done < cycles:
+        wake.clear()  # antes da verificação: um "Verificar agora" que chegar durante ela não se perde
         try:
             delay = await check(repo, settings, factory, publish)
             failures = 0
@@ -151,7 +152,6 @@ async def run_poller(repo: Repository, settings: Settings, factory: ClientFactor
         done += 1
         if cycles is not None and done >= cycles:
             break
-        wake.clear()
         try:
             await asyncio.wait_for(wake.wait(), delay * random.uniform(0.9, 1.1))  # noqa: S311 - jitter
         except TimeoutError:
