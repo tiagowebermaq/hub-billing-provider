@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     aegea_apim_key: str = ""
     idempotency_ttl_seconds: int = 7 * 24 * 3600
     webhook_timeout_seconds: float = 10.0
+    # Caixa que recebe as faturas por e-mail (IMAP). O cadastro feito no painel (aba E-mail) tem prioridade.
+    email_imap_host: str = ""
+    email_imap_port: int = 993
+    email_imap_ssl: bool = True
+    email_username: str = "41u6u31@heimber.com.br"
+    email_password: str = ""
+    email_folder: str = "INBOX"
+    email_processed_folder: str = ""
+    email_poll_seconds: int = 300
+    email_pdf_passwords: str = ""  # senhas dos PDFs protegidos, separadas por vírgula
 
 
 @lru_cache

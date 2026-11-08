@@ -11,7 +11,8 @@ Python 3.12+ · FastAPI · RabbitMQ (aio-pika) · Redis · PostgreSQL · Docker 
 src/hub_billing/
   core/        config, logs JSON, Correlation ID, segurança (Argon2, JWT, cifragem)
   domain/      modelo canônico de conta, agrupamento em lotes, permissões
-  adapters/    interface ProviderAdapter + cpfl (CPFL/RGE), aegea (Aegea/Corsan), vivo (Vivo), fake
+  adapters/    interface ProviderAdapter + cpfl (CPFL/RGE), aegea (Aegea/Corsan), vivo (Vivo), fake;
+               email_inbox (faturas que chegam por e-mail, via IMAP)
   messaging/   envelope de mensagens, topologia RabbitMQ (retry 30s/5m/1h + DLQ), cliente aio-pika
   infra/       idempotência no Redis
   webhooks/    assinatura HMAC-SHA256 e entrega
@@ -38,7 +39,7 @@ conecta o hub.
 
 `iniciar` cria o ambiente Python, instala as dependências, gera o `.env` com segredos novos, sobe RabbitMQ, Redis e
 PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API e os
-5 workers e abre o painel de administração em http://localhost:8010/painel (faturas, importação de PDF, contas e
+7 workers e abre o painel de administração em http://localhost:8010/painel (faturas, importação de PDF, contas e
 imóveis, lotes, sessões dos portais e coleta). A documentação da API fica em http://localhost:8010/docs. Precisa de
 Python 3.12+ e Docker Desktop.
 
@@ -94,6 +95,23 @@ janela do navegador no PC onde o hub roda, você entra normalmente e a sessão �
 instala o navegador). Pelo terminal também dá: `python tools/login_portal.py cpfl --distributor rge` (ou `aegea --distributor corsan`).
 Depois dispare a coleta na mesma aba ou por `POST /api/v1/collections`. A senha do portal nunca é guardada: só o token, cifrado com
 `HUB_ENCRYPTION_KEY` (a mesma na API e nos workers). Detalhes em `docs/descoberta-portais.md`.
+
+## Faturas por e-mail (caixa 41u6u31@heimber.com.br)
+As concessionárias mandam a fatura por e-mail (ou alguém encaminha) para a caixa do hub. No painel, aba **E-mail**,
+cadastre o servidor IMAP, o usuário e a senha da caixa (ficam cifrados no banco; sem cadastro lá, vale o `.env`,
+variáveis `HUB_EMAIL_...`) e clique em **Testar conexão**. Se as faturas vierem em PDF com senha (ex.: início do CPF),
+cadastre as senhas no mesmo formulário.
+
+- Worker **mailbox**: a cada 5 min (ou ao clicar **Verificar agora**, fila `email.poll`) baixa os e-mails não lidos,
+  guarda cada um (o Message-ID impede duplicar) e publica `email.received` com um Correlation ID novo. Só marca como
+  lido depois que o e-mail está guardado e na fila.
+- Worker **mailreader**: lê os PDFs com o adapter de e-mail (`adapters/email_inbox`), identifica RGE/CPFL, Corsan/Aegea
+  ou Vivo pelo texto da fatura, assunto e remetente, e publica um `collect.result` por fatura, que segue o fluxo normal.
+  O PDF fica disponível na coluna Pagar da aba Faturas.
+- Auto-cura: caixa fora do ar ou senha recusada espera 30 s, 1 min, 2 min... até 30 min e tenta de novo, sem derrubar o
+  worker; e-mail parado na fila por mais de 15 min é republicado; erro inesperado na leitura vai para retry
+  (30 s / 5 min / 1 h) e depois para a DLQ `email.received.dlq`. Fatura ilegível fica como **Revisar** no painel (e sai o
+  evento `email.manual_review`), com o botão **Reprocessar**.
 
 ## Correlation ID
 Envie `X-Correlation-ID` (ou deixe o hub gerar). Ele volta na resposta e acompanha mensagens, logs, envio ao

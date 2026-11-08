@@ -25,6 +25,8 @@ services:
   worker-grouper:    { <<: *hub, command: ["hub-worker", "grouper"] }
   worker-dispatcher: { <<: *hub, command: ["hub-worker", "dispatcher"] }
   worker-webhooks:   { <<: *hub, command: ["hub-worker", "webhooks"] }
+  worker-mailbox:    { <<: *hub, command: ["hub-worker", "mailbox"] }
+  worker-mailreader: { <<: *hub, command: ["hub-worker", "mailreader"] }
 
   # Testes unitários em container: docker compose run --rm tests
   tests:
