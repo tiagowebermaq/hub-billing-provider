@@ -111,6 +111,34 @@ bill_documents = Table(  # PDF da conta, baixado do portal na coleta
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+inbound_emails = Table(  # e-mails recebidos na caixa de faturas, com o arquivo cru para reprocessar
+    "inbound_emails", metadata,
+    Column("id", String(40), primary_key=True),  # derivado do Message-ID: o mesmo e-mail não entra duas vezes
+    Column("message_id", Text, nullable=False),
+    Column("sender", String(254), nullable=False, default=""),
+    Column("subject", Text),
+    Column("received_at", DateTime(timezone=True)),
+    Column("status", String(16), nullable=False, index=True),  # recebido | processado | revisao | ignorado | erro
+    Column("provider", String(64)),
+    Column("bills", Integer, nullable=False, default=0),
+    Column("detail", Text),
+    Column("correlation_id", String(64)),
+    Column("raw", LargeBinary, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, index=True),
+)
+
+mailbox = Table(  # configuração da caixa (cifrada) feita no painel e a saúde da última verificação
+    "mailbox", metadata,
+    Column("id", String(16), primary_key=True),
+    Column("config_enc", Text),
+    Column("last_check_at", DateTime(timezone=True)),
+    Column("last_ok_at", DateTime(timezone=True)),
+    Column("last_error", Text),
+    Column("failures", Integer, nullable=False, default=0),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 users = Table(
     "users", metadata,
     Column("id", String(36), primary_key=True),
@@ -168,7 +196,7 @@ class Repository:
         return cls(make_engine(url), SecretBox(encryption_key))
 
     def create_schema(self) -> None:
-        """Cria as tabelas que faltam. A API e os 5 workers sobem juntos e todos chamam isto: no PostgreSQL, uma
+        """Cria as tabelas que faltam. A API e os workers sobem juntos e todos chamam isto: no PostgreSQL, uma
         trava (advisory lock) faz um de cada vez, senão dois tentam criar a mesma tabela e um deles cai."""
         with self.engine.begin() as conn:
             if conn.dialect.name == "postgresql":
@@ -357,3 +385,98 @@ class Repository:
                        provider_sessions.c.updated_at).order_by(provider_sessions.c.provider)
         with self.engine.connect() as conn:
             return [dict(r._mapping) for r in conn.execute(query)]
+
+    # Caixa de e-mail das faturas ------------------------------------------------------------
+    def save_email(self, email_id: str, message_id: str, sender: str, subject: str, received_at: datetime | None,
+                   raw: bytes, correlation_id: str) -> bool:
+        """Guarda o e-mail novo como 'recebido'. Devolve False se ele já estava guardado (mesmo Message-ID)."""
+        now = _now()
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(insert(inbound_emails).values(
+                    id=email_id, message_id=message_id, sender=sender, subject=subject, received_at=received_at,
+                    status="recebido", bills=0, correlation_id=correlation_id, raw=raw, created_at=now, updated_at=now))
+        except IntegrityError:
+            return False
+        return True
+
+    def load_email(self, email_id: str) -> dict[str, Any] | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(inbound_emails).where(inbound_emails.c.id == email_id)).first()
+        if row is None:
+            return None
+        data = dict(row._mapping)
+        data["raw"] = bytes(data["raw"])
+        return data
+
+    def set_email_status(self, email_id: str, status: str, detail: str | None = None, provider: str | None = None,
+                         bills: int = 0) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(update(inbound_emails).where(inbound_emails.c.id == email_id).values(
+                status=status, detail=detail, provider=provider, bills=bills, updated_at=_now()))
+
+    def list_emails(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Últimos e-mails, sem o arquivo cru."""
+        cols = [c for c in inbound_emails.c if c.name != "raw"]
+        query = select(*cols).order_by(inbound_emails.c.created_at.desc()).limit(limit)
+        with self.engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(query)]
+
+    def stale_emails(self, before: datetime) -> list[dict[str, Any]]:
+        """E-mails parados em 'recebido' desde antes de `before`: a mensagem da fila se perdeu e precisa ir de novo."""
+        query = select(inbound_emails.c.id, inbound_emails.c.message_id, inbound_emails.c.sender,
+                       inbound_emails.c.subject, inbound_emails.c.correlation_id).where(
+            (inbound_emails.c.status == "recebido") & (inbound_emails.c.updated_at < before))
+        with self.engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(query)]
+
+    def touch_email(self, email_id: str, status: str = "recebido") -> None:
+        with self.engine.begin() as conn:
+            conn.execute(update(inbound_emails).where(inbound_emails.c.id == email_id).values(
+                status=status, updated_at=_now()))
+
+    def _mailbox_row(self, conn: Any) -> Any:
+        row = conn.execute(select(mailbox).where(mailbox.c.id == "default")).first()
+        if row is None:
+            conn.execute(insert(mailbox).values(id="default", failures=0, updated_at=_now()))
+            row = conn.execute(select(mailbox).where(mailbox.c.id == "default")).first()
+        return row
+
+    def save_mailbox_config(self, config: dict[str, Any]) -> None:
+        with self.engine.begin() as conn:
+            self._mailbox_row(conn)
+            conn.execute(update(mailbox).where(mailbox.c.id == "default").values(
+                config_enc=self.box.encrypt(json.dumps(config)), updated_at=_now()))
+
+    def load_mailbox_config(self) -> dict[str, Any] | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(mailbox.c.config_enc).where(mailbox.c.id == "default")).first()
+        if row is None or row[0] is None:
+            return None
+        try:
+            data: dict[str, Any] = json.loads(self.box.decrypt(row[0]))
+        except InvalidToken:  # HUB_ENCRYPTION_KEY trocada: o cadastro do painel precisa ser refeito
+            return None
+        return data
+
+    def record_mailbox_check(self, ok: bool, error: str | None = None) -> int:
+        """Registra a verificação da caixa. Devolve quantas falhas seguidas já houve (0 depois de um sucesso)."""
+        now = _now()
+        with self.engine.begin() as conn:
+            row = self._mailbox_row(conn)
+            failures = 0 if ok else (row.failures or 0) + 1
+            values: dict[str, Any] = {"last_check_at": now, "last_error": error, "failures": failures, "updated_at": now}
+            if ok:
+                values["last_ok_at"] = now
+            conn.execute(update(mailbox).where(mailbox.c.id == "default").values(**values))
+        return failures
+
+    def mailbox_state(self) -> dict[str, Any]:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(mailbox.c.last_check_at, mailbox.c.last_ok_at, mailbox.c.last_error,
+                                      mailbox.c.failures, mailbox.c.config_enc).where(mailbox.c.id == "default")).first()
+        if row is None:
+            return {"last_check_at": None, "last_ok_at": None, "last_error": None, "failures": 0, "from_panel": False}
+        data = dict(row._mapping)
+        data["from_panel"] = data.pop("config_enc") is not None
+        return data

@@ -31,3 +31,14 @@ def test_api_sobe_publicando_no_rabbitmq() -> None:
     for script in ("aplicacao.sh", "docker/Dockerfile"):  # fora da imagem de testes do Docker
         if (ROOT / script).exists():
             assert "hub_billing.api.app:create_production_app" in (ROOT / script).read_text(encoding="utf-8")
+
+
+def test_scripts_sobem_e_param_os_workers_de_email() -> None:
+    from hub_billing.workers.run import WORKERS
+
+    assert {"mailbox", "mailreader"} <= WORKERS.keys()
+    for name in ("aplicacao.bat", "parar.bat", "aplicacao.sh"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert all(w in text for w in WORKERS), name
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert all(f'"hub-worker", "{w}"' in compose for w in WORKERS)

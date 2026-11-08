@@ -59,3 +59,11 @@ def test_painel_oferece_pdf_pix_e_codigo_para_pagar(client: TestClient) -> None:
     html = client.get("/painel").text
     assert "data-pdf=" in html and "data-copiar=" in html and 'id="m-faturas"' in html
     assert "URL.createObjectURL" in html and "Authorization: `Bearer ${token}`" in html
+
+
+def test_painel_tem_aba_de_email_com_cadastro_e_reprocessar(client: TestClient) -> None:
+    html = client.get("/painel").text
+    assert 'data-tab="email"' in html and 'data-view="email"' in html and 'id="f-email"' in html
+    for trecho in ("/api/v1/mailbox", "/api/v1/mailbox/test", "/api/v1/mailbox/check", "/api/v1/mailbox/emails",
+                   "/reprocess", 'type="password"', "41u6u31@heimber.com.br"):
+        assert trecho in html, trecho
