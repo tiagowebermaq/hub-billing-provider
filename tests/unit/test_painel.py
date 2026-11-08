@@ -67,3 +67,10 @@ def test_painel_tem_aba_de_email_com_cadastro_e_reprocessar(client: TestClient) 
     for trecho in ("/api/v1/mailbox", "/api/v1/mailbox/test", "/api/v1/mailbox/check", "/api/v1/mailbox/emails",
                    "/reprocess", 'type="password"', "41u6u31@heimber.com.br", 'value="pop3"', "delete_after_days"):
         assert trecho in html, trecho
+
+
+def test_painel_tem_aba_de_webhooks(client: TestClient) -> None:
+    html = client.get("/painel").text
+    for trecho in ('data-tab="webhooks"', 'id="f-webhook"', "/api/v1/webhooks", "/api/v1/webhooks/deliveries",
+                   "webhooks:manage", "não aparece de novo"):
+        assert trecho in html, trecho

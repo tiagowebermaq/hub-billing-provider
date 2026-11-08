@@ -17,11 +17,13 @@ from hub_billing.infra.repository import Repository
 from hub_billing.messaging import rabbit, topology
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.rental.client import RentalClient
+from hub_billing.webhooks import worker as webhooks
 from hub_billing.workers import handlers, mailbox
 
 WORKERS = {"collector": "collect.request", "normalizer": "collect.result", "grouper": "bill.normalized",
            "dispatcher": "batch.ready", "webhooks": "events.webhook", "mailbox": "email.poll",
            "mailreader": "email.received"}
+EXTRA_QUEUES = {"webhooks": ("webhook.delivery",)}  # o worker de webhooks também entrega (uma mensagem por assinante)
 log = logging.getLogger("hub.worker")
 
 
@@ -67,7 +69,8 @@ async def _run(name: str) -> None:
         elif name == "normalizer":
             await emit(await handlers.normalize(env, guard, repo.find_link), topology.EX_BILLS, "bill.normalized")
         elif name == "grouper":
-            await emit(handlers.store_bill(env, repo), topology.EX_EVENTS, "")
+            for out in handlers.store_bill(env, repo):
+                await emit(out, topology.EX_EVENTS, "")
         elif name == "dispatcher":
             await emit(await handlers.dispatch(env, repo, rental), topology.EX_EVENTS, "")
         elif name == "mailbox":
@@ -79,9 +82,16 @@ async def _run(name: str) -> None:
                     await emit(out, topology.EX_COLLECT, mailbox.provider_routing_key(out))
                 else:
                     await emit(out, topology.EX_EVENTS, "")
-        # webhooks: entrega aos assinantes entra com o cadastro de assinaturas (por ora, só o log acima).
+        elif name == "webhooks":
+            if env.type == "webhook.delivery":
+                await webhooks.deliver_one(env, repo, http, settings.webhook_timeout_seconds)
+            else:
+                for out in webhooks.fan_out(env, repo):
+                    await emit(out, topology.EX_WEBHOOKS, "webhook.delivery")
 
     await rabbit.consume(channel, WORKERS[name], handler)
+    for queue in EXTRA_QUEUES.get(name, ()):
+        await rabbit.consume(channel, queue, handler)
     log.info("worker %s ouvindo %s", name, WORKERS[name])
     await forever
 

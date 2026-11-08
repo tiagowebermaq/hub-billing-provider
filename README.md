@@ -115,6 +115,16 @@ cadastre as senhas no mesmo formulário.
   (30 s / 5 min / 1 h) e depois para a DLQ `email.received.dlq`. Fatura ilegível fica como **Revisar** no painel (e sai o
   evento `email.manual_review`), com o botão **Reprocessar**.
 
+## Webhooks para os sistemas vizinhos
+Cada conta gravada (de portal, e-mail ou importação) gera o evento `bill.stored`, com o resumo da conta e o link
+`/api/v1/bills/{id}`, onde o sistema vizinho busca os dados completos (login com um usuário do hub, perfil Consulta).
+No painel, aba **Webhooks** (admin), cadastre o nome e a URL de cada sistema e os eventos que ele quer receber
+(`bill.stored`, `bill.manual_review`, `batch.sent`, `batch.failed`, `collect.login_required`, `email.manual_review`).
+O segredo aparece uma vez no cadastro: o sistema confere a assinatura `X-Hub-Signature-256` (HMAC-SHA256 de
+`timestamp.corpo`, com `X-Hub-Timestamp`) e descarta repetidos pelo `X-Hub-Delivery`. Cada entrega tem fila própria
+(`webhook.delivery`) com retry 30 s / 5 min / 1 h e DLQ, então um sistema fora do ar não atrasa os outros. O botão
+**Testar** manda um `webhook.ping`; o painel mostra as últimas entregas.
+
 ## Correlation ID
 Envie `X-Correlation-ID` (ou deixe o hub gerar). Ele volta na resposta e acompanha mensagens, logs, envio ao
 sistema de aluguéis e webhooks.
@@ -146,4 +156,4 @@ Pronto: fundação, Correlation ID, domínio, agrupamento, permissões, API de u
 idempotência, webhooks assinados, importação de fatura em PDF com validação FEBRABAN, persistência (vínculos, contas e
 lotes) e envio ao sistema de aluguéis com retry, todos com testes.
 Pendente: confirmar a coleta automática da RGE e da Corsan no primeiro login real, coleta da Vivo, contrato definitivo da API do sistema
-de aluguéis, cadastro de assinaturas de webhook e migrações de banco (hoje o schema é criado no boot).
+de aluguéis, e migrações de banco (hoje o schema é criado no boot).

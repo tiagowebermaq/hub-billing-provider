@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from importlib.resources import files
@@ -30,6 +31,7 @@ from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.messaging.rabbit import RabbitPublisher
+from hub_billing.webhooks.worker import EVENTS as WEBHOOK_EVENTS
 from hub_billing.workers.mailbox import ClientFactory, client_factory, resolve_config
 
 PAINEL_HTML = files("hub_billing.web").joinpath("painel.html").read_text(encoding="utf-8")
@@ -146,6 +148,16 @@ class MailboxIn(BaseModel):
     delete_after_days: int = 0
     poll_seconds: int = 300
     pdf_passwords: list[str] | None = None
+
+
+class WebhookIn(BaseModel):
+    name: str
+    url: str
+    events: set[str]
+
+
+class WebhookStatusIn(BaseModel):
+    active: bool
 
 
 class CollectionIn(BaseModel):
@@ -518,6 +530,66 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
                                 "subject": row["subject"], "force": True})
         await app.state.publisher(topology.EX_EMAIL, "email.received", env)
         return {"email_id": email_id, "correlation_id": env.correlation_id}
+
+    @app.get("/api/v1/bills/{bill_id}", response_model=Bill)
+    async def get_bill(bill_id: str, _: Annotated[User, Depends(require(Permission.BILLS_READ))]) -> Bill:
+        """Conta completa. É o link que os sistemas vizinhos recebem no webhook bill.stored."""
+        bill = db.get_bill(bill_id)
+        if bill is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "conta não encontrada")
+        return bill
+
+    @app.get("/api/v1/webhooks/events")
+    async def webhook_events(_: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> dict[str, str]:
+        return WEBHOOK_EVENTS
+
+    @app.get("/api/v1/webhooks")
+    async def list_webhooks(_: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> list[dict[str, object]]:
+        """Sistemas vizinhos cadastrados, sem o segredo."""
+        return db.list_subscriptions()
+
+    @app.post("/api/v1/webhooks", status_code=201)
+    async def add_webhook(body: WebhookIn,
+                          _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> dict[str, object]:
+        """Cadastra um sistema vizinho. O segredo da assinatura HMAC aparece só nesta resposta."""
+        url = body.url.strip()
+        if not url.startswith(("https://", "http://")):
+            raise HTTPException(422, "a URL precisa começar com https:// (ou http:// na rede interna)")
+        if not body.name.strip():
+            raise HTTPException(422, "dê um nome ao sistema")
+        unknown = body.events - WEBHOOK_EVENTS.keys() - {"*"}
+        if unknown or not body.events:
+            raise HTTPException(422, f"eventos desconhecidos: {sorted(unknown)}" if unknown else "escolha ao menos um evento")
+        sub_id, secret = str(uuid.uuid4()), secrets.token_urlsafe(32)
+        db.add_subscription(sub_id, body.name.strip(), url, secret, sorted(body.events))
+        return {"id": sub_id, "name": body.name.strip(), "url": url, "events": sorted(body.events), "secret": secret}
+
+    @app.patch("/api/v1/webhooks/{sub_id}", status_code=204)
+    async def pause_webhook(sub_id: str, body: WebhookStatusIn,
+                            _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> None:
+        if not db.set_subscription(sub_id, active=body.active):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook não encontrado")
+
+    @app.delete("/api/v1/webhooks/{sub_id}", status_code=204)
+    async def delete_webhook(sub_id: str, _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> None:
+        if not db.set_subscription(sub_id, delete_it=True):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook não encontrado")
+
+    @app.post("/api/v1/webhooks/{sub_id}/test", status_code=202)
+    async def test_webhook(sub_id: str,
+                           _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> dict[str, str]:
+        """Manda um evento webhook.ping para conferir URL e assinatura. O resultado aparece nas entregas."""
+        if not any(s["id"] == sub_id for s in db.list_subscriptions()):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook não encontrado")
+        ping = Envelope(type="webhook.ping", producer="api", payload={"message": "teste do Hub Billing"})
+        env = ping.derive("webhook.delivery", "api", {"subscription_id": sub_id, "event": ping.model_dump(mode="json")})
+        db.record_delivery(f"{ping.message_id}:{sub_id}", sub_id, ping.type, ping.correlation_id, "pendente", 0)
+        await app.state.publisher(topology.EX_WEBHOOKS, "webhook.delivery", env)
+        return {"correlation_id": ping.correlation_id}
+
+    @app.get("/api/v1/webhooks/deliveries")
+    async def list_deliveries(_: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> list[dict[str, object]]:
+        return db.list_deliveries()
 
     @app.get("/api/v1/barcodes/{digitable_line}")
     async def check_barcode(digitable_line: str,

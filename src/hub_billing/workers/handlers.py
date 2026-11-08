@@ -99,13 +99,28 @@ async def normalize(env: Envelope, guard: IdempotencyGuard, lookup: PropertyLook
     return env.derive("bill.normalized", "normalizer", {"bill": bill.model_dump(mode="json")})
 
 
-def store_bill(env: Envelope, repo: Repository) -> Envelope | None:
-    """bill.normalized -> grava a conta. Sem imóvel vinculado avisa por webhook que ela precisa de revisão."""
+def bill_summary(bill: Bill) -> dict[str, object]:
+    """O que os sistemas vizinhos recebem no webhook: o essencial e o link para buscar a conta completa."""
+    return {"bill_id": bill.id, "provider": bill.provider, "distributor": bill.distributor,
+            "utility_type": bill.utility_type.value, "account_number": bill.account_number,
+            "reference_month": bill.reference_month, "due_date": bill.due_date.isoformat(), "amount": str(bill.amount),
+            "property_id": bill.property_id, "contract_id": bill.contract_id, "status": bill.status.value,
+            "links": {"bill": f"/api/v1/bills/{bill.id}", "document": bill.document_url}}
+
+
+def store_bill(env: Envelope, repo: Repository) -> list[Envelope]:
+    """bill.normalized -> grava a conta e avisa os sistemas vizinhos (webhook bill.stored) para buscarem os dados.
+
+    Sem imóvel vinculado sai também bill.manual_review. Conta repetida não gera aviso.
+    """
     bill = Bill.model_validate(env.payload["bill"])
-    if not repo.save_bill(bill) or bill.property_id is not None:
-        return None
-    return env.derive("bill.manual_review", "grouper", {"bill_id": bill.id, "provider": bill.provider,
-                                                         "account_number": bill.account_number})
+    if not repo.save_bill(bill):
+        return []
+    outs = [env.derive("bill.stored", "grouper", bill_summary(bill))]
+    if bill.property_id is None:
+        outs.append(env.derive("bill.manual_review", "grouper", {"bill_id": bill.id, "provider": bill.provider,
+                                                                  "account_number": bill.account_number}))
+    return outs
 
 
 def build_batches(env: Envelope, bills: list[Bill]) -> list[Envelope]:

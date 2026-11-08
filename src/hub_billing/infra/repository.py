@@ -138,6 +138,30 @@ pop3_messages = Table(  # POP3 não tem "lido": o hub guarda quais mensagens (UI
     Column("deletable", Boolean, nullable=False, default=True),  # as que já estavam na caixa nunca são apagadas
 )
 
+webhook_subscriptions = Table(  # sistemas vizinhos avisados por webhook
+    "webhook_subscriptions", metadata,
+    Column("id", String(36), primary_key=True),
+    Column("name", String(120), nullable=False),
+    Column("url", Text, nullable=False),
+    Column("secret_enc", Text, nullable=False),
+    Column("events", JSON, nullable=False),
+    Column("active", Boolean, nullable=False, default=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+webhook_deliveries = Table(  # histórico de entregas, para o painel mostrar o que chegou e o que falhou
+    "webhook_deliveries", metadata,
+    Column("id", String(80), primary_key=True),  # evento + assinante
+    Column("subscription_id", String(36), nullable=False, index=True),
+    Column("event", String(64), nullable=False),
+    Column("correlation_id", String(64)),
+    Column("status", String(16), nullable=False),  # entregue | falhou | pendente
+    Column("attempts", Integer, nullable=False, default=0),
+    Column("http_status", Integer),
+    Column("error", Text),
+    Column("updated_at", DateTime(timezone=True), nullable=False, index=True),
+)
+
 mailbox = Table(  # configuração da caixa (cifrada) feita no painel e a saúde da última verificação
     "mailbox", metadata,
     Column("id", String(16), primary_key=True),
@@ -308,6 +332,11 @@ class Repository:
             query = query.where(bills.c.status == status)
         with self.engine.connect() as conn:
             return [Bill.model_validate({**r[0], "status": r[1]}) for r in conn.execute(query)]
+
+    def get_bill(self, bill_id: str) -> Bill | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(bills.c.data, bills.c.status).where(bills.c.id == bill_id)).first()
+        return Bill.model_validate({**row[0], "status": row[1]}) if row else None
 
     # Lotes --------------------------------------------------------------------------------
     def save_batch(self, batch: BillingBatch) -> None:
@@ -520,3 +549,53 @@ class Repository:
             with self.engine.begin() as conn:
                 conn.execute(delete(pop3_messages).where((pop3_messages.c.account == account)
                                                          & pop3_messages.c.uid.in_(uids)))
+
+    # Assinaturas de webhook (sistemas vizinhos) ---------------------------------------------
+    def add_subscription(self, sub_id: str, name: str, url: str, secret: str, events: list[str]) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(insert(webhook_subscriptions).values(
+                id=sub_id, name=name, url=url, secret_enc=self.box.encrypt(secret), events=sorted(events), active=True,
+                created_at=_now()))
+
+    def list_subscriptions(self, with_secret: bool = False, only_active: bool = False) -> list[dict[str, Any]]:
+        query = select(webhook_subscriptions).order_by(webhook_subscriptions.c.created_at)
+        if only_active:
+            query = query.where(webhook_subscriptions.c.active.is_(True))
+        out = []
+        with self.engine.connect() as conn:
+            for row in conn.execute(query):
+                data = dict(row._mapping)
+                enc = data.pop("secret_enc")
+                if with_secret:
+                    try:
+                        data["secret"] = self.box.decrypt(enc)
+                    except InvalidToken:  # chave trocada: assinatura precisa ser recriada
+                        continue
+                out.append(data)
+        return out
+
+    def set_subscription(self, sub_id: str, active: bool | None = None, delete_it: bool = False) -> bool:
+        key = webhook_subscriptions.c.id == sub_id
+        with self.engine.begin() as conn:
+            if delete_it:
+                return conn.execute(delete(webhook_subscriptions).where(key)).rowcount > 0
+            return conn.execute(update(webhook_subscriptions).where(key).values(active=active)).rowcount > 0
+
+    def record_delivery(self, delivery_id: str, subscription_id: str, event: str, correlation_id: str, status: str,
+                        attempt: int, http_status: int | None = None, error: str | None = None) -> None:
+        row = {"subscription_id": subscription_id, "event": event, "correlation_id": correlation_id, "status": status,
+               "attempts": attempt, "http_status": http_status, "error": error, "updated_at": _now()}
+        key = webhook_deliveries.c.id == delivery_id
+        with self.engine.begin() as conn:
+            if conn.execute(update(webhook_deliveries).where(key).values(**row)).rowcount == 0:
+                conn.execute(insert(webhook_deliveries).values(id=delivery_id, **row))
+
+    def delivery_status(self, delivery_id: str) -> str | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(webhook_deliveries.c.status).where(webhook_deliveries.c.id == delivery_id)).first()
+        return row[0] if row else None
+
+    def list_deliveries(self, limit: int = 50) -> list[dict[str, Any]]:
+        query = select(webhook_deliveries).order_by(webhook_deliveries.c.updated_at.desc()).limit(limit)
+        with self.engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(query)]
