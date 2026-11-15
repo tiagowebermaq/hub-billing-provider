@@ -5,7 +5,9 @@ from hub_billing.workers import run
 
 
 def test_every_worker_listens_to_a_declared_queue() -> None:
-    assert set(run.WORKERS.values()) == {q.name for q in topology.MAIN_QUEUES}
+    extra = {q for queues in run.EXTRA_QUEUES.values() for q in queues}
+    assert set(run.WORKERS.values()) | extra == {q.name for q in topology.MAIN_QUEUES}
+    assert run.EXTRA_QUEUES.keys() <= run.WORKERS.keys()
 
 
 def test_cli_rejects_unknown_worker(monkeypatch: pytest.MonkeyPatch) -> None:

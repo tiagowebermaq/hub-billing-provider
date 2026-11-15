@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Hub Billing Provider - inicia infraestrutura, API e os 5 workers no Ubuntu. Ctrl+C para tudo.
+# Hub Billing Provider - inicia infraestrutura, API e os 7 workers no Ubuntu. Ctrl+C para tudo.
 set -e
 cd "$(dirname "$0")"
 # Porta do hub: 8010 (a 8000 costuma estar em uso por outros projetos). Para trocar: HUB_PORT=8020 ./aplicacao.sh
@@ -9,7 +9,7 @@ if ss -ltn 2>/dev/null | grep -q ":$PORT "; then echo "A porta $PORT já está e
 docker compose up -d rabbitmq redis postgres
 echo "Aguardando os serviços ficarem prontos..."; sleep 10
 mkdir -p logs
-for w in collector normalizer grouper dispatcher webhooks; do
+for w in collector normalizer grouper dispatcher webhooks mailbox mailreader; do
   .venv/bin/hub-worker "$w" > "logs/worker-$w.log" 2>&1 &
 done
 trap 'kill $(jobs -p) 2>/dev/null' EXIT INT TERM

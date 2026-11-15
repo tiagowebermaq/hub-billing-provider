@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from importlib.resources import files
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -12,6 +14,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 
 from hub_billing import __version__
+from hub_billing.adapters.email_inbox import MailboxConfig, MailboxUnavailable
 from hub_billing.adapters.registry import available, get_adapter, load_builtin
 from hub_billing.api.deps import current_user, get_app_settings, get_store, require
 from hub_billing.api.users import User, UserStore
@@ -28,6 +31,8 @@ from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.messaging.rabbit import RabbitPublisher
+from hub_billing.webhooks.worker import EVENTS as WEBHOOK_EVENTS
+from hub_billing.workers.mailbox import ClientFactory, client_factory, resolve_config
 
 PAINEL_HTML = files("hub_billing.web").joinpath("painel.html").read_text(encoding="utf-8")
 
@@ -129,6 +134,32 @@ class CloseBatchesIn(BaseModel):
     reference_month: str
 
 
+class MailboxIn(BaseModel):
+    """Cadastro da caixa de faturas. Senha vazia (ou omitida) mantém a que já está salva."""
+
+    protocol: Literal["imap", "pop3"] = "imap"
+    host: str
+    port: int = 993
+    username: str
+    password: str | None = None
+    use_ssl: bool = True
+    folder: str = "INBOX"
+    processed_folder: str = ""
+    delete_after_days: int = 0
+    poll_seconds: int = 300
+    pdf_passwords: list[str] | None = None
+
+
+class WebhookIn(BaseModel):
+    name: str
+    url: str
+    events: set[str]
+
+
+class WebhookStatusIn(BaseModel):
+    active: bool
+
+
 class CollectionIn(BaseModel):
     provider: str
     distributor: str | None = None
@@ -143,7 +174,8 @@ def create_production_app() -> FastAPI:
 
 
 def create_app(settings: Settings | None = None, publisher: Publisher | None = None,
-               repo: Repository | None = None, portal_capture: Capture | None = None) -> FastAPI:
+               repo: Repository | None = None, portal_capture: Capture | None = None,
+               mail_client: ClientFactory | None = None) -> FastAPI:
     settings = settings or get_settings()
     load_builtin()
     app = FastAPI(title="Hub Billing Provider", version=__version__)
@@ -160,6 +192,7 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
             datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None),
         portal_capture)
     db: Repository = app.state.repo
+    mail_factory: ClientFactory = mail_client or client_factory(db)
 
     @app.middleware("http")
     async def correlation_middleware(
@@ -425,6 +458,138 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
         env = Envelope(type="batch.ready", producer="api.resend", payload={"batch_id": batch_id, "total": str(batch.total)})
         await app.state.publisher(topology.EX_BILLS, "batch.ready", env)
         return {"batch_id": batch_id, "correlation_id": env.correlation_id}
+
+    @app.get("/api/v1/mailbox")
+    async def get_mailbox(_: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> dict[str, object]:
+        """Cadastro da caixa de faturas (sem senhas) e a saúde da última verificação."""
+        config = resolve_config(db, settings)
+        return {"config": config.public(), "configured": config.configured, "state": db.mailbox_state()}
+
+    @app.put("/api/v1/mailbox", status_code=204)
+    async def save_mailbox(body: MailboxIn,
+                           _: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> None:
+        """Salva o acesso IMAP cifrado no banco. Vale para o leitor da caixa na próxima volta, sem reiniciar."""
+        if not body.host.strip() or not body.username.strip():
+            raise HTTPException(422, "informe o servidor IMAP e o usuário da caixa")
+        if body.poll_seconds < 60:
+            raise HTTPException(422, "o intervalo mínimo entre verificações é de 60 segundos")
+        if body.delete_after_days < 0:
+            raise HTTPException(422, "dias para apagar do servidor: use 0 (nunca) ou mais")
+        current = resolve_config(db, settings)
+        data = body.model_dump()
+        data["host"], data["username"] = body.host.strip(), body.username.strip()
+        data["password"] = body.password or current.password
+        data["pdf_passwords"] = current.pdf_passwords if body.pdf_passwords is None else [
+            p.strip() for p in body.pdf_passwords if p.strip()]
+        db.save_mailbox_config(MailboxConfig.model_validate(data).model_dump())
+
+    @app.post("/api/v1/mailbox/test")
+    async def test_mailbox(_: Annotated[User, Depends(require(Permission.CREDENTIALS_WRITE))]) -> dict[str, object]:
+        """Entra na caixa com o cadastro salvo e conta os e-mails não lidos, sem ler nem marcar nada."""
+        config = resolve_config(db, settings)
+        if not config.configured:
+            raise HTTPException(422, "cadastre o servidor IMAP, o usuário e a senha da caixa antes de testar")
+        client = mail_factory(config)
+
+        def probe() -> int:
+            try:
+                client.open()
+                return len(client.unseen(500))
+            finally:
+                client.close()
+
+        try:
+            unseen = await asyncio.to_thread(probe)
+        except MailboxUnavailable as exc:
+            return {"ok": False, "detail": str(exc)}
+        where = config.folder if config.protocol == "imap" else "na caixa (POP3)"
+        return {"ok": True, "unseen": unseen, "detail": f"conectado: {unseen} e-mail(s) para ler {where}"}
+
+    @app.post("/api/v1/mailbox/check", status_code=202)
+    async def check_mailbox(_: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))]) -> dict[str, str]:
+        """Pede ao leitor da caixa (worker mailbox) uma verificação agora, sem esperar o intervalo."""
+        env = Envelope(type="email.poll", producer="api")
+        await app.state.publisher(topology.EX_EMAIL, "email.poll", env)
+        return {"correlation_id": env.correlation_id}
+
+    @app.get("/api/v1/mailbox/emails")
+    async def list_emails(_: Annotated[User, Depends(require(Permission.BILLS_READ))]) -> list[dict[str, object]]:
+        return db.list_emails()
+
+    @app.post("/api/v1/mailbox/emails/{email_id}/reprocess", status_code=202)
+    async def reprocess_email(email_id: str,
+                              _: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))]) -> dict[str, str]:
+        """Lê de novo as faturas de um e-mail (ex.: depois de cadastrar a senha do PDF)."""
+        row = db.load_email(email_id)
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "e-mail não encontrado")
+        db.touch_email(email_id)
+        env = Envelope(type="email.received", producer="api.reprocess",
+                       correlation_id=row["correlation_id"] or correlation.new_id(),
+                       payload={"email_id": email_id, "message_id": row["message_id"], "from": row["sender"],
+                                "subject": row["subject"], "force": True})
+        await app.state.publisher(topology.EX_EMAIL, "email.received", env)
+        return {"email_id": email_id, "correlation_id": env.correlation_id}
+
+    @app.get("/api/v1/bills/{bill_id}", response_model=Bill)
+    async def get_bill(bill_id: str, _: Annotated[User, Depends(require(Permission.BILLS_READ))]) -> Bill:
+        """Conta completa. É o link que os sistemas vizinhos recebem no webhook bill.stored."""
+        bill = db.get_bill(bill_id)
+        if bill is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "conta não encontrada")
+        return bill
+
+    @app.get("/api/v1/webhooks/events")
+    async def webhook_events(_: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> dict[str, str]:
+        return WEBHOOK_EVENTS
+
+    @app.get("/api/v1/webhooks")
+    async def list_webhooks(_: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> list[dict[str, object]]:
+        """Sistemas vizinhos cadastrados, sem o segredo."""
+        return db.list_subscriptions()
+
+    @app.post("/api/v1/webhooks", status_code=201)
+    async def add_webhook(body: WebhookIn,
+                          _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> dict[str, object]:
+        """Cadastra um sistema vizinho. O segredo da assinatura HMAC aparece só nesta resposta."""
+        url = body.url.strip()
+        if not url.startswith(("https://", "http://")):
+            raise HTTPException(422, "a URL precisa começar com https:// (ou http:// na rede interna)")
+        if not body.name.strip():
+            raise HTTPException(422, "dê um nome ao sistema")
+        unknown = body.events - WEBHOOK_EVENTS.keys() - {"*"}
+        if unknown or not body.events:
+            raise HTTPException(422, f"eventos desconhecidos: {sorted(unknown)}" if unknown else "escolha ao menos um evento")
+        sub_id, secret = str(uuid.uuid4()), secrets.token_urlsafe(32)
+        db.add_subscription(sub_id, body.name.strip(), url, secret, sorted(body.events))
+        return {"id": sub_id, "name": body.name.strip(), "url": url, "events": sorted(body.events), "secret": secret}
+
+    @app.patch("/api/v1/webhooks/{sub_id}", status_code=204)
+    async def pause_webhook(sub_id: str, body: WebhookStatusIn,
+                            _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> None:
+        if not db.set_subscription(sub_id, active=body.active):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook não encontrado")
+
+    @app.delete("/api/v1/webhooks/{sub_id}", status_code=204)
+    async def delete_webhook(sub_id: str, _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> None:
+        if not db.set_subscription(sub_id, delete_it=True):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook não encontrado")
+
+    @app.post("/api/v1/webhooks/{sub_id}/test", status_code=202)
+    async def test_webhook(sub_id: str,
+                           _: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> dict[str, str]:
+        """Manda um evento webhook.ping para conferir URL e assinatura. O resultado aparece nas entregas."""
+        if not any(s["id"] == sub_id for s in db.list_subscriptions()):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "webhook não encontrado")
+        ping = Envelope(type="webhook.ping", producer="api", payload={"message": "teste do Hub Billing"})
+        env = ping.derive("webhook.delivery", "api", {"subscription_id": sub_id, "event": ping.model_dump(mode="json")})
+        db.record_delivery(f"{ping.message_id}:{sub_id}", sub_id, ping.type, ping.correlation_id, "pendente", 0)
+        await app.state.publisher(topology.EX_WEBHOOKS, "webhook.delivery", env)
+        return {"correlation_id": ping.correlation_id}
+
+    @app.get("/api/v1/webhooks/deliveries")
+    async def list_deliveries(_: Annotated[User, Depends(require(Permission.WEBHOOKS_MANAGE))]) -> list[dict[str, object]]:
+        return db.list_deliveries()
 
     @app.get("/api/v1/barcodes/{digitable_line}")
     async def check_barcode(digitable_line: str,

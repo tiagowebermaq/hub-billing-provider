@@ -6,6 +6,8 @@ EX_BILLS = "hub.bills"
 EX_EVENTS = "hub.events"
 EX_RETRY = "hub.retry"
 EX_DLX = "hub.dlx"
+EX_EMAIL = "hub.email"
+EX_WEBHOOKS = "hub.webhooks"
 
 RETRY_DELAYS_MS = (30_000, 300_000, 3_600_000)  # 30 s, 5 min, 1 h
 
@@ -28,9 +30,13 @@ MAIN_QUEUES = (
     _main("bill.normalized", EX_BILLS, "bill.normalized"),
     _main("batch.ready", EX_BILLS, "batch.ready"),
     _main("events.webhook", EX_EVENTS, ""),
+    _main("email.poll", EX_EMAIL, "email.poll"),  # "Verificar agora" do painel acorda o leitor da caixa
+    _main("email.received", EX_EMAIL, "email.received"),  # um e-mail novo guardado, para ler as faturas
+    _main("webhook.delivery", EX_WEBHOOKS, "webhook.delivery"),  # uma entrega por assinante: retry independente
 )
 
-EXCHANGES = {EX_COLLECT: "topic", EX_BILLS: "topic", EX_EVENTS: "fanout", EX_RETRY: "direct", EX_DLX: "direct"}
+EXCHANGES = {EX_COLLECT: "topic", EX_BILLS: "topic", EX_EVENTS: "fanout", EX_RETRY: "direct", EX_DLX: "direct",
+             EX_EMAIL: "topic", EX_WEBHOOKS: "direct"}
 
 
 def retry_queue_name(queue: str, delay_ms: int) -> str:
