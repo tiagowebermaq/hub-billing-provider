@@ -28,6 +28,9 @@ primeiro login real. Chaves e tokens foram omitidos.
 - Login: Azure AD B2C `aeclientes.b2clogin.com`, política `B2C_1A_SIGNUP_SIGNIN`, client_id do SPA
   `b673d12b-6c65-45b4-9c3c-299cc574b4f8`, escopo `AguasAPI.ReadWrite`. MSAL guarda os tokens no `localStorage`.
   O refresh token de SPA vale ~24 h. reCAPTCHA v3 só nos endpoints deslogados.
+- 401 da coleta (2026-11-15): o `.env` nunca recebia a `HUB_AEGEA_APIM_KEY`, e sem ela o APIM recusa toda chamada.
+  Agora o "Conectar" lê a chave e o endereço da API nas chamadas que o próprio portal faz depois do login e guarda na
+  sessão (`apim_key`, `api_base`, junto com `client_id` e `scope` do cache do MSAL). A do `.env` virou reserva.
 
 | Método | Caminho | Parâmetros | Resposta |
 |---|---|---|---|

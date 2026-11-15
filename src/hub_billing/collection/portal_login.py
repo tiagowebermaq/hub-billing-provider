@@ -27,6 +27,7 @@ LOGIN_TIMEOUT_S = 600
 DIAG_DIR = Path("logs")
 # Site novo da CPFL (cpfl.com.br/agencia-virtual): Drupal com a sessão no servidor, guardada em cookies.
 AGENCIA_VIRTUAL = "/agencia-virtual/"
+AEGEA_API_HOST = "aegea.com.br"
 SNAPSHOT_DIR = DIAG_DIR / "cpfl-paginas"
 SNAPSHOT_JS = """() => {
   const chaves = ["conta completa", "unidades consumidoras", "outra instalação"];
@@ -67,6 +68,26 @@ class Seen:
 
     tokens: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
+    apim_key: str | None = None
+    api_base: str | None = None
+    key_wait: int = 0
+
+    def waited_key(self, rounds: int = 15) -> bool:
+        """Dá ~30 s para o portal chamar a API depois do login; se não chamar, segue com a chave do .env."""
+        self.key_wait += 1
+        return self.key_wait > rounds
+
+    def request(self, url: str, headers: dict[str, str]) -> None:
+        """Corsan: a chave pública do APIM e o endereço da API vão em toda chamada do portal; o hub usa as mesmas."""
+        parts = urlsplit(url)
+        key = {k.lower(): v for k, v in headers.items()}.get("ocp-apim-subscription-key")
+        if not key or not parts.netloc.endswith(AEGEA_API_HOST):
+            return
+        self.apim_key = key
+        marker = "/agencia-virtual/app/"
+        if marker in parts.path:
+            head, tail = parts.path.split(marker, 1)
+            self.api_base = f"{parts.scheme}://{parts.netloc}{head}{marker}{tail.split('/', 1)[0]}"
 
     def response(self, url: str, method: str, status: int, has_auth: bool, body: Callable[[], Any],
                  kind: str = "fetch") -> None:
@@ -179,8 +200,19 @@ def aegea_capture(page: Any, context: Any, seen: Seen | None = None) -> dict[str
     if access is None:
         return None
     expires = datetime.fromtimestamp(int(access.get("expiresOn") or access.get("expires_on") or 0), UTC)
-    return {"access_token": access["secret"], "refresh_token": (refresh or {}).get("secret"),
+    data = {"access_token": access["secret"], "refresh_token": (refresh or {}).get("secret"),
             "expires_at": expires.isoformat()}
+    if access.get("clientId"):
+        data["client_id"] = access["clientId"]
+    if access.get("target"):
+        data["scope"] = f"{access['target']} offline_access openid"
+    if seen and seen.apim_key:  # sem a chave a API recusa tudo com 401: espera o portal fazer a primeira chamada
+        data["apim_key"] = seen.apim_key
+        if seen.api_base:
+            data["api_base"] = seen.api_base
+    elif seen is not None and not seen.waited_key():
+        return None
+    return data
 
 
 CAPTURE = {"cpfl": cpfl_capture, "aegea": aegea_capture}
@@ -221,6 +253,7 @@ def capture(provider: str, timeout_s: int = LOGIN_TIMEOUT_S) -> dict[str, Any]: 
                 while pending:
                     r = pending.pop(0)
                     try:
+                        seen.request(r.url, r.request.headers)
                         seen.response(r.url, r.request.method, r.status, "authorization" in r.request.headers,
                                       r.json, r.request.resource_type)
                     except Exception:  # resposta de página que já fechou
