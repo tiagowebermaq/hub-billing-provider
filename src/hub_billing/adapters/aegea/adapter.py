@@ -36,17 +36,25 @@ class AegeaAdapter(ProviderAdapter):
     """Água e esgoto: unidades do grupo Aegea, incluindo Corsan (distributor="corsan").
 
     Coleta automática pela API da Agência Virtual (Azure APIM). O login B2C é interativo, então o token vem do
-    login assistido (tools/login_portal.py aegea); o refresh token de SPA vale ~24 h.
-    Opção obrigatória em use(): apim_key (HUB_AEGEA_APIM_KEY, chave pública do portal).
+    login assistido ("Conectar" no painel); o refresh token de SPA vale ~24 h. A chave pública do APIM e o endereço
+    da API são capturados das chamadas do próprio portal no login (apim_key, api_base na sessão); HUB_AEGEA_APIM_KEY
+    no .env é só reserva.
     Também aceita a importação da fatura em PDF (parse_invoice / raw_from_invoice).
     """
 
     utility_type = UtilityType.WATER
     account_labels = ("matrícula", "matricula", "código do imóvel", "inscrição")
 
+    def _apim_key(self, session: ProviderSession) -> str:
+        """A chave capturada no "Conectar" vale mais que a do .env: é a que o portal usa hoje."""
+        key = session.data.get("apim_key") or self.options.get("apim_key", "")
+        if not key:
+            raise RuntimeError("falta a chave da API da Corsan: clique em Conectar na aba Portais e entre de novo")
+        return str(key)
+
     def _headers(self, session: ProviderSession, tenant: str | None = None) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {session.data['access_token']}", "Origin": PORTAL, "Referer": PORTAL + "/",
-                   "Ocp-Apim-Subscription-Key": self.options.get("apim_key", ""), "Accept": "application/json"}
+                   "Ocp-Apim-Subscription-Key": self._apim_key(session), "Accept": "application/json"}
         if tenant:
             headers["X-TenantID"] = tenant
         return headers
@@ -66,7 +74,8 @@ class AegeaAdapter(ProviderAdapter):
         if not data.get("refresh_token"):
             raise SessionExpired("sessão da Aegea expirada: refaça o login assistido")
         resp = await self._client().post(B2C_TOKEN, headers={"Origin": PORTAL}, data={
-            "grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": data["refresh_token"], "scope": SCOPE})
+            "grant_type": "refresh_token", "client_id": data.get("client_id") or CLIENT_ID,
+            "refresh_token": data["refresh_token"], "scope": data.get("scope") or SCOPE})
         if resp.status_code != 200:
             raise SessionExpired(f"renovação do token da Aegea recusada (HTTP {resp.status_code}): refaça o login assistido")
         tok = resp.json()
@@ -76,11 +85,13 @@ class AegeaAdapter(ProviderAdapter):
 
     async def _get(self, session: ProviderSession, path: str, tenant: str | None = None,
                    params: dict[str, Any] | None = None, retry: bool = True) -> Any:
-        resp = await self._client().get(f"{API}/{path}", headers=self._headers(session, tenant), params=params)
+        base = session.data.get("api_base") or API
+        resp = await self._client().get(f"{base}/{path}", headers=self._headers(session, tenant), params=params)
         if resp.status_code == 401:
             detail = _detail(resp)
             if "subscription key" in detail.lower():  # recusa do APIM, não do login
-                raise RuntimeError(f"a Aegea recusou a chave HUB_AEGEA_APIM_KEY do .env ({detail})")
+                raise RuntimeError(f"a Corsan recusou a chave da API ({detail}): clique em Conectar na aba Portais "
+                                   "e entre de novo para o hub pegar a chave atual do portal")
             if not retry or not session.data.get("refresh_token"):
                 raise SessionExpired(f"token da Aegea recusado ({detail}): refaça o login assistido")
             try:  # token vencido antes da hora: renova uma vez e tenta de novo

@@ -90,6 +90,27 @@ def test_captura_aegea() -> None:
     assert data["expires_at"].startswith("2026-10-29")
 
 
+def test_captura_aegea_pega_chave_e_api_do_portal() -> None:
+    local = {"rt": json.dumps({"credentialType": "RefreshToken", "secret": "rt"}),
+             "at": json.dumps({"credentialType": "AccessToken", "target": "https://x/AguasAPI.ReadWrite", "secret": "at",
+                               "clientId": "cid", "expiresOn": "1793232000"})}
+    seen = Seen()
+    seen.request("https://www.google.com/x", {"Ocp-Apim-Subscription-Key": "outra"})
+    seen.request("https://api.aegea.com.br/external/agencia-virtual/app/v1/cliente/matriculas", {"x": "y"})
+    assert login_portal.aegea_capture(FakePage(local=local), FakeContext(), seen) is None  # espera a chave
+    seen.request("https://api.aegea.com.br/external/agencia-virtual/app/v1/cliente/matriculas",
+                 {"ocp-apim-subscription-key": "k1"})
+    data = login_portal.aegea_capture(FakePage(local=local), FakeContext(), seen)
+    assert data is not None and data["apim_key"] == "k1" and data["client_id"] == "cid"
+    assert data["api_base"] == "https://api.aegea.com.br/external/agencia-virtual/app/v1"
+    assert data["scope"] == "https://x/AguasAPI.ReadWrite offline_access openid"
+    seen.request("https://apim.aegea.com.br/outro/caminho", {"Ocp-Apim-Subscription-Key": "k2"})
+    assert seen.apim_key == "k2" and seen.api_base.endswith("/app/v1")  # type: ignore[union-attr]
+    sem_chave = Seen()
+    results = [login_portal.aegea_capture(FakePage(local=local), FakeContext(), sem_chave) for _ in range(16)]
+    assert results[-2] is None and results[-1] is not None and "apim_key" not in results[-1]  # segue com o .env
+
+
 @respx.mock
 def test_envia_sessao_ao_hub() -> None:
     respx.post("http://hub/api/v1/auth/login").mock(return_value=httpx.Response(200, json={"access_token": "jwt"}))
