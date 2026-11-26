@@ -52,10 +52,16 @@ class ParsedInvoice:
     consumer: dict[str, str] = field(default_factory=dict)
 
 
-def pdf_text(data: bytes) -> str:
+def pdf_text(data: bytes, passwords: Iterable[str] = ()) -> str:
+    """Texto do PDF. Faturas enviadas por e-mail às vezes vêm com senha (ex.: início do CPF): tenta as informadas."""
     try:
         reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            if not any(reader.decrypt(pw) for pw in ("", *passwords)):
+                raise InvoiceParseError("PDF protegido por senha: cadastre a senha das faturas no painel (aba E-mail)")
         return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except InvoiceParseError:
+        raise
     except Exception as exc:  # pypdf levanta vários tipos para PDFs corrompidos
         raise InvoiceParseError(f"PDF ilegível: {exc}") from exc
 

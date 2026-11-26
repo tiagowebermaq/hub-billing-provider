@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     aegea_apim_key: str = ""
     idempotency_ttl_seconds: int = 7 * 24 * 3600
     webhook_timeout_seconds: float = 10.0
+    # Caixa que recebe as faturas por e-mail (IMAP). O cadastro feito no painel (aba E-mail) tem prioridade.
+    email_protocol: str = "pop3"  # imap ou pop3
+    email_imap_host: str = "mail.webermaq.com"
+    email_imap_port: int = 995
+    email_imap_ssl: bool = True
+    email_username: str = "41u6u31@heimber.com.br"
+    email_password: str = ""
+    email_folder: str = "INBOX"
+    email_processed_folder: str = ""
+    email_delete_after_days: int = 10  # POP3: apaga do servidor N dias depois de lido (0 = nunca)
+    email_poll_seconds: int = 300
+    email_pdf_passwords: str = ""  # senhas dos PDFs protegidos, separadas por vírgula
 
 
 @lru_cache

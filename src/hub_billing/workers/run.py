@@ -8,6 +8,7 @@ import aio_pika
 import httpx
 from redis.asyncio import Redis
 
+from hub_billing.adapters.email_inbox import EmailAdapter
 from hub_billing.adapters.registry import load_builtin
 from hub_billing.core import logging as hub_logging
 from hub_billing.core.config import get_settings
@@ -16,10 +17,13 @@ from hub_billing.infra.repository import Repository
 from hub_billing.messaging import rabbit, topology
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.rental.client import RentalClient
-from hub_billing.workers import handlers
+from hub_billing.webhooks import worker as webhooks
+from hub_billing.workers import handlers, mailbox
 
 WORKERS = {"collector": "collect.request", "normalizer": "collect.result", "grouper": "bill.normalized",
-           "dispatcher": "batch.ready", "webhooks": "events.webhook"}
+           "dispatcher": "batch.ready", "webhooks": "events.webhook", "mailbox": "email.poll",
+           "mailreader": "email.received"}
+EXTRA_QUEUES = {"webhooks": ("webhook.delivery",)}  # o worker de webhooks também entrega (uma mensagem por assinante)
 log = logging.getLogger("hub.worker")
 
 
@@ -42,6 +46,14 @@ async def _run(name: str) -> None:
         if out is not None:
             await rabbit.publish(channel, exchange, key, out)
 
+    async def publish(exchange: str, key: str, env: Envelope) -> None:
+        await rabbit.publish(channel, exchange, key, env)
+
+    wake = asyncio.Event()
+    forever: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+    if name == "mailbox":  # laço próprio de leitura da caixa; a fila email.poll só antecipa a próxima volta
+        forever = asyncio.create_task(mailbox.run_poller(repo, settings, mailbox.client_factory(repo), publish, wake))
+
     async def handler(env: Envelope) -> None:
         extra = {"extra_fields": {"worker": name, "message_id": env.message_id}}
         log.info("recebido %s %s", env.type, env.payload.get("provider", ""), extra=extra)
@@ -57,14 +69,31 @@ async def _run(name: str) -> None:
         elif name == "normalizer":
             await emit(await handlers.normalize(env, guard, repo.find_link), topology.EX_BILLS, "bill.normalized")
         elif name == "grouper":
-            await emit(handlers.store_bill(env, repo), topology.EX_EVENTS, "")
+            for out in handlers.store_bill(env, repo):
+                await emit(out, topology.EX_EVENTS, "")
         elif name == "dispatcher":
             await emit(await handlers.dispatch(env, repo, rental), topology.EX_EVENTS, "")
-        # webhooks: entrega aos assinantes entra com o cadastro de assinaturas (por ora, só o log acima).
+        elif name == "mailbox":
+            wake.set()
+        elif name == "mailreader":
+            config = mailbox.resolve_config(repo, settings)
+            for out in mailbox.process_email(env, repo, EmailAdapter(config.pdf_passwords)):
+                if out.type == "collect.result":
+                    await emit(out, topology.EX_COLLECT, mailbox.provider_routing_key(out))
+                else:
+                    await emit(out, topology.EX_EVENTS, "")
+        elif name == "webhooks":
+            if env.type == "webhook.delivery":
+                await webhooks.deliver_one(env, repo, http, settings.webhook_timeout_seconds)
+            else:
+                for out in webhooks.fan_out(env, repo):
+                    await emit(out, topology.EX_WEBHOOKS, "webhook.delivery")
 
     await rabbit.consume(channel, WORKERS[name], handler)
+    for queue in EXTRA_QUEUES.get(name, ()):
+        await rabbit.consume(channel, queue, handler)
     log.info("worker %s ouvindo %s", name, WORKERS[name])
-    await asyncio.Future()
+    await forever
 
 
 def main() -> None:

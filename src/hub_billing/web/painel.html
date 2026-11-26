@@ -54,6 +54,8 @@ header button.sec:hover{background:rgba(255,255,255,.12);border-color:#fff}
 .empty{color:var(--muted);padding:14px}
 h3.sub{flex-basis:100%;margin:8px 0 0;font-size:13px;color:var(--muted);font-weight:600}
 label.wide{flex:1 1 280px}
+#webhook-eventos{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;flex:1 1 100%}
+label.ev{flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--ink);cursor:pointer}
 td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
 .auth{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
 .auth-card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px 28px 22px;box-shadow:0 8px 28px rgba(15,26,40,.08)}
@@ -149,6 +151,8 @@ a.link:hover,button.link:hover{text-decoration:underline}
     <button data-tab="contas">Contas e imóveis</button>
     <button data-tab="lotes">Lotes</button>
     <button data-tab="portais">Portais</button>
+    <button data-tab="email">E-mail</button>
+    <button data-tab="webhooks" class="hide" id="tab-webhooks">Webhooks</button>
     <button data-tab="usuarios" class="hide" id="tab-usuarios">Usuários</button>
   </nav>
   <main>
@@ -268,6 +272,63 @@ a.link:hover,button.link:hover{text-decoration:underline}
       <div class="card scroll">
         <h2>Sessões dos portais</h2>
         <table id="t-portais"></table>
+      </div>
+    </section>
+    <section data-view="email" class="hide">
+      <div class="card">
+        <h2>Caixa de faturas por e-mail</h2>
+        <p class="msg">As concessionárias (ou você, encaminhando) mandam as faturas para esta caixa. O hub lê os PDFs, descobre se é RGE/CPFL, Corsan/Aegea ou Vivo e coloca a conta na aba Faturas.</p>
+        <div class="kpis" id="kpis-email"></div>
+        <div class="row">
+          <button class="pri" type="button" id="email-verificar">Verificar agora</button>
+          <button class="sec" type="button" id="email-testar">Testar conexão</button>
+        </div>
+        <div class="msg" id="m-email"></div>
+      </div>
+      <div class="card" id="email-config">
+        <h2>Acesso à caixa</h2>
+        <form class="row" id="f-email">
+          <label>Receber por<select name="protocol"><option value="imap">IMAP</option><option value="pop3">POP3 (quando o provedor não tem IMAP)</option></select></label>
+          <label class="wide">Servidor<input name="host" placeholder="ex.: mail.webermaq.com" required></label>
+          <label>Porta<input name="port" type="number" value="993" min="1" max="65535"></label>
+          <label class="wide">Usuário<input name="username" placeholder="41u6u31@heimber.com.br" required></label>
+          <label>Senha<input name="password" type="password" autocomplete="new-password" placeholder="mantém a salva"></label>
+          <label class="so-imap">Pasta<input name="folder" value="INBOX"></label>
+          <label class="so-imap">Mover lidos para<input name="processed_folder" placeholder="opcional"></label>
+          <label class="so-pop3">Apagar do servidor depois de (dias)<input name="delete_after_days" type="number" value="0" min="0" title="0 = nunca apaga"></label>
+          <label>Verificar a cada (min)<input name="poll_minutes" type="number" value="5" min="1"></label>
+          <label class="wide">Senhas dos PDFs<input name="pdf_passwords" placeholder="separadas por vírgula; vazio mantém"></label>
+          <label><span>SSL</span><input name="use_ssl" type="checkbox" checked style="min-width:auto;width:auto"></label>
+          <button class="pri" type="submit">Salvar</button>
+        </form>
+        <p class="msg">As senhas ficam cifradas no banco e não voltam para a tela. Sem cadastro aqui, o hub usa o que estiver no .env (HUB_EMAIL_...).</p>
+        <p class="msg so-pop3">POP3: o hub guarda quais e-mails já leu. Com 0 dias nada é apagado do servidor; com N dias, só os e-mails que chegaram depois de ligar o hub são apagados, N dias depois de lidos.</p>
+        <div class="msg" id="m-f-email"></div>
+      </div>
+      <div class="card scroll">
+        <h2>E-mails recebidos</h2>
+        <table id="t-emails"></table>
+      </div>
+    </section>
+    <section data-view="webhooks" class="hide">
+      <div class="card">
+        <h2>Avisar sistemas vizinhos</h2>
+        <p class="msg">A cada conta gravada (vinda do portal, do e-mail ou da importação), o hub manda um aviso (webhook) para os sistemas cadastrados aqui. O aviso traz o resumo e o link da conta; o sistema busca os dados completos em /api/v1/bills/{id} com um usuário do hub (perfil Consulta).</p>
+        <form class="row" id="f-webhook">
+          <label>Nome do sistema<input name="name" placeholder="ex.: Sistema de locação" required></label>
+          <label class="wide">URL que recebe o aviso<input name="url" type="url" placeholder="ex.: sistema.exemplo/webhooks/hub (com https)" required></label>
+          <div id="webhook-eventos"></div>
+          <button class="pri" type="submit">Cadastrar</button>
+        </form>
+        <div class="msg" id="m-webhook"></div>
+      </div>
+      <div class="card scroll">
+        <h2>Sistemas cadastrados</h2>
+        <table id="t-webhooks"></table>
+      </div>
+      <div class="card scroll">
+        <h2>Últimas entregas</h2>
+        <table id="t-entregas"></table>
       </div>
     </section>
   </main>
@@ -418,7 +479,57 @@ async function loadUsuarios() {
     ["Situação", situacao], ["", acoes]], await api("/api/v1/users"), "Nenhum usuário.");
 }
 
-const LOADERS = {faturas: loadFaturas, contas: loadContas, lotes: loadLotes, portais: loadPortais, usuarios: loadUsuarios, importar: async () => {}};
+const EMAIL = {recebido: ["", "Na fila"], processado: ["ok", "Lido"], revisao: ["warn", "Revisar"],
+  ignorado: ["", "Sem fatura"], erro: ["bad", "Erro"]};
+const CONCESSIONARIA = {cpfl: "CPFL/RGE", aegea: "Aegea/Corsan", vivo: "Vivo"};
+async function loadEmail() {
+  const caixa = await api("/api/v1/mailbox").catch(() => null);
+  $("#email-config").classList.toggle("hide", !caixa);
+  if (caixa) {
+    const c = caixa.config, st = caixa.state, f = $("#f-email");
+    for (const k of ["protocol", "host", "port", "username", "folder", "processed_folder", "delete_after_days"]) f.elements[k].value = c[k] ?? "";
+    protocolo();
+    f.elements.poll_minutes.value = Math.round(c.poll_seconds / 60);
+    f.elements.use_ssl.checked = c.use_ssl;
+    f.elements.password.placeholder = c.has_password ? "mantém a salva" : "senha da caixa";
+    f.elements.pdf_passwords.placeholder = c.pdf_passwords ? `${c.pdf_passwords} salva(s); vazio mantém` : "separadas por vírgula";
+    const saude = !caixa.configured ? `<span class="chip warn">Não configurada</span>`
+      : st.failures ? `<span class="chip bad">Falhando (${esc(st.failures)}x)</span>` : st.last_ok_at ? `<span class="chip ok">Conectada</span>` : `<span class="chip">Aguardando</span>`;
+    $("#kpis-email").innerHTML = [["Caixa", esc(c.username)], ["Situação", saude], ["Última verificação", when(st.last_check_at)],
+      ["Último sucesso", when(st.last_ok_at)]].map(([k, v]) => `<div class="kpi"><span>${k}</span><b style="font-size:16px;word-break:break-all">${v}</b></div>`).join("")
+      + (st.last_error ? `<p class="msg bad" style="flex-basis:100%">${esc(st.last_error)}</p>` : "");
+  }
+  table($("#t-emails"), [
+    ["Recebido", r => when(r.received_at || r.created_at)], ["De", r => cut(r.sender)], ["Assunto", r => cut(r.subject)],
+    ["Situação", r => { const [tom, txt] = EMAIL[r.status] || ["", r.status]; return `<span class="chip ${tom}">${esc(txt)}</span>`; }],
+    ["Concessionária", r => esc((r.provider || "").split(", ").map(p => CONCESSIONARIA[p] || p).join(", ") || "—")],
+    ["Faturas", r => esc(r.bills)],
+    ["", r => r.status === "processado" ? "" : `<button class="sec" data-reprocessar="${esc(r.id)}">Reprocessar</button>`],
+    ["Detalhe", r => cut(r.detail || "")],
+  ], await api("/api/v1/mailbox/emails").catch(() => []), "Nenhum e-mail recebido ainda.");
+}
+
+const ENTREGA = {entregue: ["ok", "Entregue"], falhou: ["bad", "Falhou"], pendente: ["", "Na fila"]};
+async function loadWebhooks() {
+  const eventos = await api("/api/v1/webhooks/events");
+  const box = $("#webhook-eventos");
+  if (!box.children.length) box.innerHTML = "<span class=\"msg\">Eventos:</span> " + Object.entries(eventos).map(([k, v]) =>
+    `<label class="ev"><input type="checkbox" name="events" value="${esc(k)}" ${k === "bill.stored" ? "checked" : ""} style="min-width:auto;width:auto">${esc(v)}</label>`).join("");
+  const subs = await api("/api/v1/webhooks");
+  const nomes = Object.fromEntries(subs.map(s => [s.id, s.name]));
+  table($("#t-webhooks"), [
+    ["Sistema", s => esc(s.name)], ["URL", s => cut(s.url)], ["Eventos", s => esc(s.events.join(", "))],
+    ["Situação", s => s.active ? `<span class="chip ok">Ativo</span>` : `<span class="chip warn">Pausado</span>`],
+    ["", s => `<button class="sec" data-wh-testar="${esc(s.id)}">Testar</button> <button class="sec" data-wh-ativo="${esc(s.id)}" data-v="${s.active ? 0 : 1}">${s.active ? "Pausar" : "Ativar"}</button> <button class="sec" data-wh-remover="${esc(s.id)}">Remover</button>`],
+  ], subs, "Nenhum sistema cadastrado ainda.");
+  table($("#t-entregas"), [
+    ["Quando", d => when(d.updated_at)], ["Sistema", d => esc(nomes[d.subscription_id] || "removido")], ["Evento", d => esc(d.event)],
+    ["Situação", d => { const [tom, txt] = ENTREGA[d.status] || ["", d.status]; return `<span class="chip ${tom}">${esc(txt)}</span>`; }],
+    ["Tentativas", d => esc(d.attempts)], ["Detalhe", d => cut(d.error || (d.http_status ? `HTTP ${d.http_status}` : ""))],
+  ], await api("/api/v1/webhooks/deliveries").catch(() => []), "Nenhuma entrega ainda.");
+}
+
+const LOADERS = {faturas: loadFaturas, contas: loadContas, lotes: loadLotes, portais: loadPortais, email: loadEmail, webhooks: loadWebhooks, usuarios: loadUsuarios, importar: async () => {}};
 
 function show(tab) {
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
@@ -444,6 +555,7 @@ async function start() {
   const me = await api("/api/v1/me");
   if (me.must_change_password) return pedirSenha(true);
   $("#tab-usuarios").classList.toggle("hide", !me.permissions.includes("users:manage"));
+  $("#tab-webhooks").classList.toggle("hide", !me.permissions.includes("webhooks:manage"));
   const h = new Date().getHours();
   $("#who").textContent = `${h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite"}, ${me.name || me.email}`;
   const providers = await api("/api/v1/providers");
@@ -612,6 +724,67 @@ $("#f-coleta").addEventListener("submit", async e => {
     say("#m-coleta", "Coleta iniciada. O resultado aparece em Últimas coletas, e as faturas na aba Faturas.", "ok");
     for (let i = 0; i < 12; i++) { await pausa(5000); await loadColetas(); }
   } catch (err) { say("#m-coleta", err.message, "bad"); }
+});
+
+$("#f-email").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target, v = k => f.elements[k].value.trim();
+  const body = {protocol: v("protocol"), delete_after_days: Number(v("delete_after_days") || 0), host: v("host"), port: Number(v("port") || 993), username: v("username"), use_ssl: f.elements.use_ssl.checked,
+    folder: v("folder") || "INBOX", processed_folder: v("processed_folder"), poll_seconds: Math.max(1, Number(v("poll_minutes") || 5)) * 60};
+  if (v("password")) body.password = v("password");
+  if (v("pdf_passwords")) body.pdf_passwords = v("pdf_passwords").split(",");
+  try { await api("/api/v1/mailbox", {method: "PUT", json: body}); f.elements.password.value = ""; f.elements.pdf_passwords.value = "";
+    say("#m-f-email", "Caixa salva. Use Testar conexão para conferir.", "ok"); loadEmail(); }
+  catch (err) { say("#m-f-email", err.message, "bad"); }
+});
+function protocolo() {
+  const pop = $("#f-email").elements.protocol.value === "pop3";
+  document.querySelectorAll(".so-imap").forEach(e => e.classList.toggle("hide", pop));
+  document.querySelectorAll(".so-pop3").forEach(e => e.classList.toggle("hide", !pop));
+}
+$("#f-email").elements.protocol.addEventListener("change", e => {
+  const porta = e.target.form.elements.port;
+  if (["", "993", "995"].includes(porta.value)) porta.value = e.target.value === "pop3" ? "995" : "993";
+  protocolo();
+});
+protocolo();
+$("#email-testar").addEventListener("click", async () => {
+  say("#m-email", "Conectando na caixa...");
+  try { const r = await api("/api/v1/mailbox/test", {method: "POST"}); say("#m-email", r.ok ? `Tudo certo, ${r.detail}.` : `Não conectou: ${r.detail}`, r.ok ? "ok" : "bad"); }
+  catch (err) { say("#m-email", err.message, "bad"); }
+});
+$("#email-verificar").addEventListener("click", async () => {
+  try { await api("/api/v1/mailbox/check", {method: "POST"});
+    say("#m-email", "Verificação pedida. Os e-mails novos aparecem abaixo em alguns segundos.", "ok");
+    for (let i = 0; i < 6; i++) { await pausa(5000); await loadEmail(); } }
+  catch (err) { say("#m-email", err.message, "bad"); }
+});
+$("#t-emails").addEventListener("click", async e => {
+  const id = e.target.dataset.reprocessar; if (!id) return;
+  try { await api(`/api/v1/mailbox/emails/${id}/reprocess`, {method: "POST"}); say("#m-email", "E-mail enviado para leitura de novo.", "ok");
+    await pausa(4000); loadEmail(); }
+  catch (err) { say("#m-email", err.message, "bad"); }
+});
+
+$("#f-webhook").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target, events = [...f.querySelectorAll("[name=events]:checked")].map(c => c.value);
+  try {
+    const r = await api("/api/v1/webhooks", {method: "POST", json: {name: f.elements.name.value, url: f.elements.url.value, events}});
+    f.elements.name.value = f.elements.url.value = "";
+    say("#m-webhook", `Cadastrado. Segredo da assinatura (copie agora, ele não aparece de novo): ${r.secret}`, "ok");
+    loadWebhooks();
+  } catch (err) { say("#m-webhook", err.message, "bad"); }
+});
+$("#t-webhooks").addEventListener("click", async e => {
+  const d = e.target.dataset;
+  try {
+    if (d.whTestar) { await api(`/api/v1/webhooks/${d.whTestar}/test`, {method: "POST"}); say("#m-webhook", "Teste enviado. O resultado aparece em Últimas entregas.", "ok"); await pausa(3000); }
+    else if (d.whAtivo) await api(`/api/v1/webhooks/${d.whAtivo}`, {method: "PATCH", json: {active: d.v === "1"}});
+    else if (d.whRemover) await api(`/api/v1/webhooks/${d.whRemover}`, {method: "DELETE"});
+    else return;
+    loadWebhooks();
+  } catch (err) { say("#m-webhook", err.message, "bad"); }
 });
 
 function ICONE(d) { return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`; }

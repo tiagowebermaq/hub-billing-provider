@@ -1,5 +1,5 @@
 @echo off
-REM Hub Billing Provider - inicia a aplicação: infraestrutura no Docker, API e os 5 workers, cada um na sua janela.
+REM Hub Billing Provider - inicia a aplicação: infraestrutura no Docker, API e os 7 workers, cada um na sua janela.
 REM Para parar: rode parar.bat.
 setlocal
 cd /d "%~dp0"
@@ -15,7 +15,7 @@ echo Aguardando os servicos ficarem prontos...
 timeout /t 10 /nobreak >nul
 
 start "Hub API" cmd /k .venv\Scripts\uvicorn.exe hub_billing.api.app:create_production_app --factory --host 127.0.0.1 --port %HUB_PORT%
-for %%W in (collector normalizer grouper dispatcher webhooks) do start "Hub %%W" /min cmd /k .venv\Scripts\hub-worker.exe %%W
+for %%W in (collector normalizer grouper dispatcher webhooks mailbox mailreader) do start "Hub %%W" /min cmd /k .venv\Scripts\hub-worker.exe %%W
 
 timeout /t 5 /nobreak >nul
 REM O painel abre no navegador padrao. So os logins dos portais usam o navegador do hub (faixa verde).

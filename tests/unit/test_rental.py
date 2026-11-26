@@ -113,10 +113,13 @@ async def test_dispatcher_recusa_definitiva_vira_failed(repo: Repository) -> Non
     assert {b.status for b in repo.list_bills()} == {BillStatus.FAILED}
 
 
-def test_store_bill_avisa_revisao_manual(repo: Repository) -> None:
+def test_store_bill_avisa_sistemas_vizinhos_e_revisao_manual(repo: Repository) -> None:
     linked = Envelope(type="bill.normalized", producer="n", payload={"bill": bill("c1").model_dump(mode="json")})
     unlinked = Envelope(type="bill.normalized", producer="n", payload={"bill": bill("c2", None).model_dump(mode="json")})
-    assert store_bill(linked, repo) is None
-    out = store_bill(unlinked, repo)
-    assert out is not None and out.type == "bill.manual_review" and out.payload["account_number"] == "c2"
-    assert store_bill(unlinked, repo) is None  # duplicada
+    [stored] = store_bill(linked, repo)
+    assert stored.type == "bill.stored" and stored.correlation_id == linked.correlation_id
+    assert stored.payload["account_number"] == "c1" and stored.payload["links"]["bill"].startswith("/api/v1/bills/")
+    stored2, review = store_bill(unlinked, repo)
+    assert stored2.type == "bill.stored" and review.type == "bill.manual_review"
+    assert review.payload["account_number"] == "c2"
+    assert store_bill(unlinked, repo) == []  # duplicada
