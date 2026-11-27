@@ -4,7 +4,7 @@ import asyncio
 import secrets
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from importlib.resources import files
 from typing import Annotated, Any, Literal, Protocol
 
@@ -25,13 +25,14 @@ from hub_billing.core.config import Settings, get_settings
 from hub_billing.core.security import create_token, hash_password, verify_password
 from hub_billing.domain.barcode import BarcodeError, from_digitable_line
 from hub_billing.domain.grouping import group_bills
-from hub_billing.domain.models import BatchStatus, Bill, BillStatus, ConsumerInfo, PropertyInfo
+from hub_billing.domain.models import BatchStatus, Bill, BillStatus, ConsumerInfo, PaymentStatus, PropertyInfo
 from hub_billing.domain.permissions import ROLE_DEFAULTS, Permission
 from hub_billing.infra.repository import Repository
 from hub_billing.messaging import topology
 from hub_billing.messaging.envelope import Envelope
 from hub_billing.messaging.rabbit import RabbitPublisher
 from hub_billing.webhooks.worker import EVENTS as WEBHOOK_EVENTS
+from hub_billing.workers.handlers import payment_summary
 from hub_billing.workers.mailbox import ClientFactory, client_factory, resolve_config
 
 PAINEL_HTML = files("hub_billing.web").joinpath("painel.html").read_text(encoding="utf-8")
@@ -154,6 +155,10 @@ class WebhookIn(BaseModel):
     name: str
     url: str
     events: set[str]
+
+
+class PaymentIn(BaseModel):
+    paid: bool = True
 
 
 class WebhookStatusIn(BaseModel):
@@ -415,8 +420,23 @@ def create_app(settings: Settings | None = None, publisher: Publisher | None = N
 
     @app.get("/api/v1/bills", response_model=list[Bill])
     async def list_bills(_: Annotated[User, Depends(require(Permission.BILLS_READ))],
-                         reference_month: str | None = None, status: BillStatus | None = None) -> list[Bill]:
-        return db.list_bills(reference_month, status)
+                         reference_month: str | None = None, status: BillStatus | None = None,
+                         payment: PaymentStatus | None = None) -> list[Bill]:
+        """Contas gravadas. payment filtra pela situação de pagamento: EM_ABERTO, VENCIDA ou PAGA."""
+        return db.list_bills(reference_month, status, payment)
+
+    @app.post("/api/v1/bills/{bill_id}/payment", response_model=Bill)
+    async def set_bill_payment(bill_id: str, body: PaymentIn,
+                               user: Annotated[User, Depends(require(Permission.COLLECTIONS_RUN))]) -> Bill:
+        """Marca a conta como paga (ou de volta em aberto) à mão. A coleta nos portais não muda mais essa conta."""
+        if db.get_bill(bill_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "conta não encontrada")
+        bill = db.set_payment(bill_id, datetime.now(UTC) if body.paid else None, "manual", user.email)
+        assert bill is not None
+        env = Envelope(type="bill.paid" if body.paid else "bill.reopened", producer="api",
+                       payload=payment_summary(bill))
+        await app.state.publisher(topology.EX_EVENTS, "", env)
+        return bill
 
     @app.get("/api/v1/documents/{provider}/{account_number}/{reference_month}")
     async def get_document(provider: str, account_number: str, reference_month: str,

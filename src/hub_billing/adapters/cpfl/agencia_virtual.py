@@ -49,6 +49,11 @@ def parse_conta_atual(page: str) -> dict[str, Any] | None:
     }
 
 
+def sem_conta_atual(page: str) -> bool:
+    """A página inicial abriu, mas sem o card "Conta Atual": a UC não tem conta em aberto no portal."""
+    return re.search(r'class="[^"]*\bconta-atual\b', page) is None
+
+
 def perfil_uc(page: str) -> dict[str, str | None]:
     """Endereço e classe da UC aberta (cabeçalho do usuário) e o PIX copia e cola da conta atual."""
     def span(cls: str) -> str | None:

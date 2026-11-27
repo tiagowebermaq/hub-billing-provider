@@ -38,6 +38,7 @@ from hub_billing.domain.models import (
     BillingBatch,
     BillStatus,
     ConsumerInfo,
+    PaymentStatus,
     PropertyInfo,
     fill_gaps,
 )
@@ -324,19 +325,40 @@ class Repository:
                 bill_documents.c.business_key == business_key)).first()
         return (bytes(row[0]), row[1]) if row else None
 
-    def list_bills(self, reference_month: str | None = None, status: BillStatus | None = None) -> list[Bill]:
+    def list_bills(self, reference_month: str | None = None, status: BillStatus | None = None,
+                   payment: PaymentStatus | None = None) -> list[Bill]:
         query = select(bills.c.data, bills.c.status).order_by(bills.c.created_at)
         if reference_month:
             query = query.where(bills.c.reference_month == reference_month)
         if status:
             query = query.where(bills.c.status == status)
         with self.engine.connect() as conn:
-            return [Bill.model_validate({**r[0], "status": r[1]}) for r in conn.execute(query)]
+            found = [Bill.model_validate({**r[0], "status": r[1]}) for r in conn.execute(query)]
+        return [b for b in found if b.payment_status == payment] if payment else found
 
     def get_bill(self, bill_id: str) -> Bill | None:
         with self.engine.connect() as conn:
             row = conn.execute(select(bills.c.data, bills.c.status).where(bills.c.id == bill_id)).first()
         return Bill.model_validate({**row[0], "status": row[1]}) if row else None
+
+    def account_bills(self, provider: str, account_number: str) -> list[Bill]:
+        """Todas as contas gravadas de uma UC/matrícula, para conferir com o que o portal mostra em aberto."""
+        query = select(bills.c.data, bills.c.status).where(
+            (bills.c.provider == provider) & (bills.c.account_number == account_number)).order_by(bills.c.reference_month)
+        with self.engine.connect() as conn:
+            return [Bill.model_validate({**r[0], "status": r[1]}) for r in conn.execute(query)]
+
+    def set_payment(self, bill_id: str, paid_at: datetime | None, source: str | None,
+                    paid_by: str | None = None) -> Bill | None:
+        """Marca a conta como paga (paid_at) ou de volta em aberto (paid_at None). Devolve a conta atualizada."""
+        with self.engine.begin() as conn:
+            row = conn.execute(select(bills.c.data, bills.c.status).where(bills.c.id == bill_id)).first()
+            if row is None:
+                return None
+            bill = Bill.model_validate({**row[0], "status": row[1]}).model_copy(update={
+                "paid_at": paid_at, "payment_source": source, "paid_by": paid_by if paid_at else None})
+            conn.execute(update(bills).where(bills.c.id == bill_id).values(data=bill.model_dump(mode="json")))
+        return bill
 
     # Lotes --------------------------------------------------------------------------------
     def save_batch(self, batch: BillingBatch) -> None:

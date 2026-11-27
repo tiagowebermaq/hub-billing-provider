@@ -57,6 +57,8 @@ label.wide{flex:1 1 280px}
 #webhook-eventos{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;flex:1 1 100%}
 label.ev{flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--ink);cursor:pointer}
 td.cut{max-width:240px;overflow:hidden;text-overflow:ellipsis}
+.vencida{color:var(--bad);font-weight:600}
+small.muted{color:var(--muted);font-size:11px}
 .auth{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
 .auth-card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px 28px 22px;box-shadow:0 8px 28px rgba(15,26,40,.08)}
 .auth-card h2{text-align:center;font-size:24px;font-weight:800;margin:0}
@@ -162,6 +164,7 @@ a.link:hover,button.link:hover{text-decoration:underline}
         <form class="row" id="f-faturas">
           <label>Competência<input name="reference_month" type="month"></label>
           <label>Status<select name="status"><option value="">Todos</option></select></label>
+          <label>Pagamento<select name="payment"><option value="">Todos</option><option value="EM_ABERTO">Em aberto</option><option value="VENCIDA">Vencida</option><option value="PAGA">Paga</option></select></label>
           <button class="sec" type="submit">Filtrar</button>
         </form>
         <p class="msg" id="m-faturas"></p>
@@ -381,7 +384,10 @@ async function loadFaturas() {
   const bills = await api(`/api/v1/bills?${q}`);
   const total = bills.reduce((s, b) => s + Number(b.amount), 0);
   const count = s => bills.filter(b => b.status === s).length;
+  const pend = bills.filter(b => b.payment_status !== "PAGA");
   $("#kpis").innerHTML = [["Faturas", bills.length], ["Valor total", brl(total)],
+    ["A pagar", brl(pend.reduce((s, b) => s + Number(b.amount), 0))],
+    ["Vencidas", bills.filter(b => b.payment_status === "VENCIDA").length],
     ["Prontas para lote", count("NORMALIZED")], ["Sem imóvel vinculado", count("MANUAL_REVIEW")]]
     .map(([k, v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join("");
   table($("#t-faturas"), [
@@ -389,14 +395,27 @@ async function loadFaturas() {
     ["Tipo", b => TYPE[b.utility_type] || esc(b.utility_type)],
     ["Conta", b => esc(b.account_number)], ["Imóvel", b => esc(b.property_id)],
     ["Titular", b => esc(b.consumer?.name)], ["Endereço", b => cut(b.property_info?.address), "cut"],
-    ["Competência", b => esc(b.reference_month)], ["Vencimento", b => date(b.due_date)],
-    ["Valor", b => brl(b.amount), "num"], ["Status", b => chip(b.status)],
+    ["Competência", b => esc(b.reference_month)],
+    ["Vencimento", b => b.payment_status === "VENCIDA" ? `<span class="vencida">${date(b.due_date)}</span>` : date(b.due_date)],
+    ["Valor", b => brl(b.amount), "num"], ["Pagamento", pagamento], ["Status", b => chip(b.status)],
     ["Pagar", b => [
       b.document_url ? `<button class="sec" data-pdf="${esc(b.document_url)}">PDF</button>` : "",
       b.pix_code ? `<button class="sec" data-copiar="${esc(b.pix_code)}" data-o-que="PIX copia e cola">PIX</button>` : "",
       b.digitable_line ? `<button class="sec" data-copiar="${esc(b.digitable_line)}" data-o-que="Código de barras">Código</button>` : "",
     ].join(" ") || "—"],
+    ["", b => b.payment_status === "PAGA"
+      ? `<button class="sec" data-pago="false" data-bill="${esc(b.id)}">Reabrir</button>`
+      : `<button class="sec" data-pago="true" data-bill="${esc(b.id)}">Marcar como paga</button>`],
   ], bills, "Nenhuma fatura ainda. Importe um PDF ou inicie uma coleta.");
+}
+
+const PAGAMENTO = {EM_ABERTO: ["", "Em aberto"], VENCIDA: ["bad", "Vencida"], PAGA: ["ok", "Paga"]};
+function pagamento(b) {
+  const [tom, nome] = PAGAMENTO[b.payment_status] || ["", b.payment_status];
+  const quem = b.payment_source === "manual" ? `marcada no painel${b.paid_by ? " por " + b.paid_by : ""}` : "saiu do portal";
+  const dica = b.paid_at ? ` title="${esc(`${quem} em ${when(b.paid_at)}`)}"` : "";
+  const desde = b.paid_at ? ` <small class="muted">${date(b.paid_at)}</small>` : "";
+  return `<span class="chip ${tom}"${dica}>${nome}</span>${desde}`;
 }
 
 let links = [];
@@ -687,7 +706,16 @@ $("#f-fechar").addEventListener("submit", async e => {
   } catch (err) { say("#m-fechar", err.message, "bad"); }
 });
 $("#t-faturas").addEventListener("click", async e => {
-  const {pdf, copiar, oQue} = e.target.dataset;
+  const {pdf, copiar, oQue, pago, bill} = e.target.dataset;
+  if (bill) {
+    e.target.disabled = true;
+    try {
+      const b = await api(`/api/v1/bills/${bill}/payment`, {method: "POST", json: {paid: pago === "true"}});
+      say("#m-faturas", `Conta ${b.account_number} de ${b.reference_month} ${b.paid_at ? "marcada como paga" : "de volta em aberto"}.`, "ok");
+      loadFaturas();
+    } catch (err) { e.target.disabled = false; say("#m-faturas", err.message, "bad"); }
+    return;
+  }
   if (copiar) {
     try { await navigator.clipboard.writeText(copiar); say("#m-faturas", `${oQue} copiado. Cole no app do banco.`, "ok"); }
     catch (err) { say("#m-faturas", `Não deu para copiar: ${copiar}`, "bad"); }

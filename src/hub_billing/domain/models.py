@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 _YM = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
@@ -26,6 +26,14 @@ class BillStatus(StrEnum):
     DUPLICATE = "DUPLICATE"
     FAILED = "FAILED"
     MANUAL_REVIEW = "MANUAL_REVIEW"
+
+
+class PaymentStatus(StrEnum):
+    """Situação de pagamento da conta, mostrada no painel e mandada aos sistemas vizinhos."""
+
+    OPEN = "EM_ABERTO"  # ainda aparece no portal e não venceu
+    OVERDUE = "VENCIDA"  # em aberto depois do vencimento
+    PAID = "PAGA"  # saiu da lista de contas em aberto do portal, ou alguém marcou no painel
 
 
 class BatchStatus(StrEnum):
@@ -90,6 +98,19 @@ class Bill(BaseModel):
     consumer: ConsumerInfo | None = None
     status: BillStatus = BillStatus.NORMALIZED
     correlation_id: str | None = None
+    paid_at: datetime | None = None  # quando o hub notou o pagamento (ou quando marcaram no painel)
+    payment_source: str | None = None  # portal | manual: o portal nunca muda o que foi decidido à mão
+    paid_by: str | None = None  # quem marcou no painel
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def payment_status(self) -> PaymentStatus:
+        return self.payment_on(date.today())
+
+    def payment_on(self, today: date) -> PaymentStatus:
+        if self.paid_at is not None:
+            return PaymentStatus.PAID
+        return PaymentStatus.OVERDUE if self.due_date < today else PaymentStatus.OPEN
 
     @field_validator("reference_month")
     @classmethod
