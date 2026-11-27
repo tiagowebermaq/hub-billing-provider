@@ -116,11 +116,20 @@ cadastre as senhas no mesmo formulário.
   (30 s / 5 min / 1 h) e depois para a DLQ `email.received.dlq`. Fatura ilegível fica como **Revisar** no painel (e sai o
   evento `email.manual_review`), com o botão **Reprocessar**.
 
+## Contas pagas e em aberto
+Na aba **Faturas**, a coluna **Pagamento** mostra **Em aberto** (ainda no portal, dentro do prazo), **Vencida** (em
+aberto depois do vencimento, em vermelho) ou **Paga**. A cada coleta, o hub confere as contas gravadas de cada UC/matrícula
+que o portal listou: a que sumiu das contas em aberto vira **Paga**, com a data em que o hub notou (e sai o evento
+`bill.paid`); se voltar a aparecer em aberto, volta (evento `bill.reopened`). Contas de UCs que o portal não acompanha
+(vindas só por e-mail ou importação) não mudam sozinhas. O site novo da CPFL/RGE mostra uma conta só por UC: ali só viram
+pagas as competências anteriores à mostrada, e nenhuma enquanto a mostrada estiver atrasada. O botão **Marcar como paga**
+(ou **Reabrir**) decide à mão, e a coleta não muda mais essa conta. Filtro por situação: `GET /api/v1/bills?payment=PAGA`.
+
 ## Webhooks para os sistemas vizinhos
 Cada conta gravada (de portal, e-mail ou importação) gera o evento `bill.stored`, com o resumo da conta e o link
 `/api/v1/bills/{id}`, onde o sistema vizinho busca os dados completos (login com um usuário do hub, perfil Consulta).
 No painel, aba **Webhooks** (admin), cadastre o nome e a URL de cada sistema e os eventos que ele quer receber
-(`bill.stored`, `bill.manual_review`, `batch.sent`, `batch.failed`, `collect.login_required`, `email.manual_review`).
+(`bill.stored`, `bill.manual_review`, `bill.paid`, `bill.reopened`, `batch.sent`, `batch.failed`, `collect.login_required`, `email.manual_review`).
 O segredo aparece uma vez no cadastro: o sistema confere a assinatura `X-Hub-Signature-256` (HMAC-SHA256 de
 `timestamp.corpo`, com `X-Hub-Timestamp`) e descarta repetidos pelo `X-Hub-Delivery`. Cada entrega tem fila própria
 (`webhook.delivery`) com retry 30 s / 5 min / 1 h e DLQ, então um sistema fora do ar não atrasa os outros. O botão

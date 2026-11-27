@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 EVENTS = {
     "bill.stored": "Conta gravada (a cada conta nova, de portal, e-mail ou importação)",
     "bill.manual_review": "Conta sem imóvel vinculado",
+    "bill.paid": "Conta paga (sumiu das contas em aberto do portal, ou marcada como paga no painel)",
+    "bill.reopened": "Conta que estava paga voltou a ficar em aberto",
     "batch.sent": "Lote enviado ao sistema de aluguéis",
     "batch.failed": "Lote recusado pelo sistema de aluguéis",
     "collect.login_required": "Portal pede login de novo",

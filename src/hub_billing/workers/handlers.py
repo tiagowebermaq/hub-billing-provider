@@ -1,10 +1,12 @@
 """Lógica dos workers como funções puras sobre envelopes, testáveis sem RabbitMQ."""
 import logging
+import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 import httpx
 
-from hub_billing.adapters.base import ProviderAdapter, ProviderSession, RawBill, SessionExpired
+from hub_billing.adapters.base import ProviderAccount, ProviderAdapter, ProviderSession, RawBill, SessionExpired
 from hub_billing.adapters.registry import get_adapter
 from hub_billing.domain.grouping import group_bills
 from hub_billing.domain.models import BatchStatus, Bill
@@ -45,6 +47,7 @@ async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
             await _keep_document(adapter, session, raw, repo)
             repo.complete_bill(adapter.to_canonical(raw))  # contas que já estavam gravadas ganham o que faltava
         repo.save_session(provider, distributor, session.data, stored[1])  # cookies renovados pelo portal na coleta
+        payments = [] if p.get("reference_month") else reconcile_payments(repo, provider, accounts, raws)
     except SessionExpired as exc:
         repo.record_run(env.message_id, provider, distributor, "login", message=str(exc))
         return [env.derive("collect.login_required", "collector",
@@ -55,8 +58,75 @@ async def collect(env: Envelope, repo: Repository, http: httpx.AsyncClient,
     message = None if raws else (
         "nenhuma unidade encontrada na sessão do portal" if not accounts else "nenhuma conta em aberto encontrada")
     repo.record_run(env.message_id, provider, distributor, "ok", len(accounts), len(raws), message)
-    return [env.derive("collect.result", "collector", {"raw": raw.model_dump(mode="json"), "distributor": distributor})
-            for raw in raws]
+    return [*(env.derive("collect.result", "collector", {"raw": raw.model_dump(mode="json"), "distributor": distributor})
+              for raw in raws),
+            *(env.derive("bill.paid" if bill.paid_at else "bill.reopened", "collector", payment_summary(bill))
+              for bill in payments)]
+
+
+_PAID = re.compile(r"\b(paga|pago|quitad[ao]|baixad[ao])\b", re.I)  # "pagamento" não conta
+_NOT = re.compile(r"\b(não|nao)\b", re.I)
+_OVERDUE = re.compile(r"atras|vencid|d[ée]bito", re.I)
+
+
+def _paid_text(text: object) -> bool:
+    return isinstance(text, str) and bool(_PAID.search(text)) and not _NOT.search(text)
+
+
+def _overdue_text(text: object) -> bool:
+    return isinstance(text, str) and bool(_OVERDUE.search(text))
+
+
+def reconcile_payments(repo: Repository, provider: str, accounts: list[ProviderAccount], raws: list[RawBill],
+                       now: datetime | None = None) -> list[Bill]:
+    """Confere as contas gravadas de cada UC/matrícula que o portal listou com as contas em aberto que ele mostrou.
+
+    Conta gravada que sumiu da lista de abertas vira paga (paid_at = quando o hub notou); conta paga pelo portal que
+    volta a aparecer em aberto volta para aberto. Só mexe nas UCs que o portal acompanha nesta coleta: conta que veio
+    só por e-mail ou importação, de outra UC, fica como está. O que foi marcado à mão no painel nunca muda.
+    O site novo da CPFL mostra uma conta só por UC (a "Conta Atual"): ali, só as competências anteriores à mostrada
+    viram pagas, e nenhuma enquanto a mostrada estiver atrasada (ela pode ser a mais antiga de várias em aberto).
+    """
+    now = now or datetime.now(UTC)
+    single = [a for a in accounts if "conta_atual" in a.extra]
+    if single and all(a.extra["conta_atual"] is None for a in single) and len(single) == len(accounts) > 1:
+        log.warning("%s: nenhuma UC com conta atual nesta coleta; pagamento não conferido (site mudou?)", provider)
+        return []
+    changed: list[Bill] = []
+    for account in accounts:
+        shown = {r.reference_month: r for r in raws if r.account_number == account.account_number}
+        partial = "conta_atual" in account.extra
+        current = max(shown.values(), key=lambda r: r.reference_month, default=None)
+        for bill in repo.account_bills(provider, account.account_number):
+            if bill.payment_source == "manual":
+                continue
+            raw = shown.get(bill.reference_month)
+            if raw is not None:
+                status = raw.payload.get("status")
+                if bill.paid_at is None and _paid_text(status):
+                    paid = repo.set_payment(bill.id, now, "portal")
+                elif bill.paid_at is not None and not _paid_text(status):
+                    paid = repo.set_payment(bill.id, None, None)  # pago pelo portal, mas voltou em aberto
+                else:
+                    continue
+            elif bill.paid_at is not None:
+                continue
+            elif partial and current is not None and (
+                    bill.reference_month > current.reference_month or _overdue_text(current.payload.get("status"))):
+                continue
+            else:
+                paid = repo.set_payment(bill.id, now, "portal")
+            if paid is not None:
+                log.info("conta %s %s %s %s pelo portal", provider, bill.account_number, bill.reference_month,
+                         "paga" if paid.paid_at else "reaberta")
+                changed.append(paid)
+    return changed
+
+
+def payment_summary(bill: Bill) -> dict[str, object]:
+    """Aviso bill.paid / bill.reopened: o resumo da conta com a situação de pagamento."""
+    return {**bill_summary(bill), "payment_status": bill.payment_status.value,
+            "paid_at": bill.paid_at.isoformat() if bill.paid_at else None, "payment_source": bill.payment_source}
 
 
 def document_url(raw: RawBill) -> str:
@@ -105,6 +175,7 @@ def bill_summary(bill: Bill) -> dict[str, object]:
             "utility_type": bill.utility_type.value, "account_number": bill.account_number,
             "reference_month": bill.reference_month, "due_date": bill.due_date.isoformat(), "amount": str(bill.amount),
             "property_id": bill.property_id, "contract_id": bill.contract_id, "status": bill.status.value,
+            "payment_status": bill.payment_status.value,
             "links": {"bill": f"/api/v1/bills/{bill.id}", "document": bill.document_url}}
 
 

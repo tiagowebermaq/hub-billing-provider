@@ -29,6 +29,9 @@ _INSTALLATION_FIELDS = ("Instalacao", "ParceiroNegocio", "ContaContrato", "Codig
                         "IndGrupoA", "Situacao")
 
 
+_SEM_CONTA: dict[str, Any] = {}  # marcador: UC aberta no site sem card "Conta Atual"
+
+
 def _as_obj(value: Any) -> Any:
     """A resposta do /api/token traz Instalacao e ListaInstalacoes como strings JSON."""
     return json.loads(value) if isinstance(value, str) and value[:1] in "[{" else value
@@ -223,7 +226,12 @@ class CpflAdapter(ProviderAdapter):
                 if escolha is not None:
                     await self._site_choose(session, escolha)
                 conta = await self._site_conta_atual(session)
-                if conta:
+                if conta is _SEM_CONTA:  # UC sem conta em aberto: entra vazia, para o hub ver o que foi pago
+                    valor = (escolha or {}).get("valor", "")
+                    if valor.isdigit():
+                        accounts.setdefault(valor, ProviderAccount(account_number=valor,
+                                                                   extra={"conta_atual": None, "escolha": escolha}))
+                elif conta:
                     extra = {"conta_atual": conta, **({"escolha": escolha} if escolha else {})}
                     if conta["instalacao"] not in self._pdfs:  # baixa já, com a UC aberta, sem trocar de novo depois
                         try:
@@ -252,10 +260,12 @@ class CpflAdapter(ProviderAdapter):
         return resp.content
 
     async def _site_conta_atual(self, session: ProviderSession) -> dict[str, Any] | None:
+        """Conta atual da UC aberta; _SEM_CONTA quando a página abriu sem nenhuma conta; None se não deu para ler."""
         resp = await self._site_get(session, av.PAGINA_INICIAL)
         if av.is_login_page(str(resp.url), resp.text):
             raise SessionExpired("sessão da CPFL expirada: refaça o login assistido")
-        return av.parse_conta_atual(resp.text)
+        conta = av.parse_conta_atual(resp.text)
+        return _SEM_CONTA if conta is None and av.sem_conta_atual(resp.text) else conta
 
     async def fetch_bills(
         self, session: ProviderSession, account: ProviderAccount, reference: str | None = None
@@ -263,6 +273,8 @@ class CpflAdapter(ProviderAdapter):
         """Contas em aberto da instalação (historico-contas/validar-situacao); no site novo, a conta atual da UC."""
         if "conta_atual" in account.extra:
             c = account.extra["conta_atual"]
+            if c is None:
+                return []
             if reference and c["referencia"] != reference:
                 return []
             return [RawBill(provider=self.code, account_number=account.account_number, reference_month=c["referencia"],
