@@ -4,6 +4,6 @@ REM Use quando esquecer a senha do painel. O hub pode estar aberto; o PostgreSQL
 setlocal
 cd /d "%~dp0"
 if not exist .venv\Scripts\python.exe (echo Rode iniciar.bat primeiro. & pause & exit /b 1)
-where docker >nul 2>nul && docker compose up -d postgres >nul
+where docker >nul 2>nul && call tools\docker_pronto.bat && docker compose up -d postgres >nul
 .venv\Scripts\python.exe tools\reset_admin.py || (echo [ERRO] Nao foi possivel redefinir. Confira se o Docker Desktop esta aberto. & pause & exit /b 1)
 pause

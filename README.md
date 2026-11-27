@@ -41,7 +41,8 @@ conecta o hub.
 PostgreSQL no Docker e roda os testes. `aplicacao` sobe a infraestrutura, a API e os
 7 workers e abre o painel de administração em http://localhost:8010/painel (faturas, importação de PDF, contas e
 imóveis, lotes, sessões dos portais e coleta). A documentação da API fica em http://localhost:8010/docs. Precisa de
-Python 3.12+ e Docker Desktop.
+Python 3.12+ e Docker Desktop. No Windows, se o Docker Desktop estiver fechado (por exemplo, depois de ligar o
+PC), `iniciar`, `aplicacao` e `resetar-senha` abrem o Docker Desktop sozinhos e esperam ele ficar pronto.
 
 O hub usa a porta 8010 para não conflitar com outros projetos na 8000. Para usar outra, defina `HUB_PORT`
 antes de rodar `aplicacao` (ex.: `set HUB_PORT=8020` no Windows). Se a porta estiver ocupada, o script avisa e para.

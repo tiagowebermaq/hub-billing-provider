@@ -10,6 +10,7 @@ netstat -ano | findstr /R /C:":%HUB_PORT% .*LISTENING" >nul && (echo [ERRO] A po
 if not exist .venv\Scripts\python.exe (echo Rode iniciar.bat primeiro. & pause & exit /b 1)
 if not exist .env (echo Rode iniciar.bat primeiro. & pause & exit /b 1)
 
+call tools\docker_pronto.bat || (pause & exit /b 1)
 docker compose up -d rabbitmq redis postgres || (echo [ERRO] Abra o Docker Desktop e tente de novo. & pause & exit /b 1)
 echo Aguardando os servicos ficarem prontos...
 timeout /t 10 /nobreak >nul
