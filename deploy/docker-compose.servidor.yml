@@ -1,0 +1,54 @@
+# Hub Billing Provider no servidor (VM do omnichannel no R610), em https://billing.heimber.com.br
+# Usado junto com o docker-compose.yml:  ./publicar.sh  (não rode à mão)
+# - banco, RabbitMQ e Redis ficam fechados (sem portas abertas) e com senhas fortes do .env
+# - a API só escuta em 127.0.0.1:8010; quem atende a internet é o proxy (Caddy deste arquivo ou o nginx da VM)
+x-servidor: &servidor
+  environment:
+    HUB_ENV: prod
+    HUB_RABBITMQ_URL: amqp://hub:${HUB_RABBITMQ_PASSWORD:?rode ./publicar.sh}@rabbitmq:5672/
+    HUB_REDIS_URL: redis://:${HUB_REDIS_PASSWORD:?rode ./publicar.sh}@redis:6379/0
+    HUB_DATABASE_URL: postgresql+psycopg://hub:${HUB_DB_PASSWORD:?rode ./publicar.sh}@postgres:5432/hub
+  volumes: [./logs:/app/logs]
+
+services:
+  api:
+    <<: *servidor
+    ports: !override ["127.0.0.1:${HUB_PORT:-8010}:8000"]
+    command: ["uvicorn", "hub_billing.api.app:create_production_app", "--factory", "--host", "0.0.0.0",
+              "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+  worker-collector:  { <<: *servidor }
+  worker-normalizer: { <<: *servidor }
+  worker-grouper:    { <<: *servidor }
+  worker-dispatcher: { <<: *servidor }
+  worker-webhooks:   { <<: *servidor }
+  worker-mailbox:    { <<: *servidor }
+  worker-mailreader: { <<: *servidor }
+
+  rabbitmq:
+    ports: !reset []
+    environment: { RABBITMQ_DEFAULT_USER: hub, RABBITMQ_DEFAULT_PASS: "${HUB_RABBITMQ_PASSWORD}" }
+    restart: unless-stopped
+  redis:
+    ports: !reset []
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${HUB_REDIS_PASSWORD}"]
+    healthcheck: { test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping"], interval: 5s, retries: 10 }
+    environment: { REDIS_PASSWORD: "${HUB_REDIS_PASSWORD}" }
+    restart: unless-stopped
+  postgres:
+    ports: !reset []
+    environment: { POSTGRES_USER: hub, POSTGRES_PASSWORD: "${HUB_DB_PASSWORD}", POSTGRES_DB: hub }
+    restart: unless-stopped
+
+  # Só sobe quando as portas 80 e 443 da VM estão livres (o publicar.sh decide). Pega o certificado HTTPS sozinho.
+  caddy:
+    image: caddy:2.8-alpine
+    profiles: ["caddy"]
+    ports: ["80:80", "443:443"]
+    environment: { HUB_DOMINIO: "${HUB_DOMINIO:-billing.heimber.com.br}" }
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy-dados:/data", "caddy-config:/config"]
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  caddy-dados:
+  caddy-config:

@@ -1,0 +1,6 @@
+# Caddy: HTTPS automático (Let's Encrypt) para o hub. O domínio vem de HUB_DOMINIO no .env.
+{$HUB_DOMINIO} {
+	encode gzip
+	redir / /painel 302
+	reverse_proxy api:8000
+}
