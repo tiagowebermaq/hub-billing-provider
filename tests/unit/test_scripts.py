@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_scripts_windows_usam_crlf() -> None:
-    for name in ("iniciar.bat", "aplicacao.bat", "parar.bat", "resetar-senha.bat"):
+    for name in ("iniciar.bat", "aplicacao.bat", "parar.bat", "resetar-senha.bat", "tools/docker_pronto.bat"):
         data = (ROOT / name).read_bytes()
         assert data.count(b"\n") == data.count(b"\r\n"), f"{name} precisa de quebras de linha CRLF"
 
@@ -44,3 +44,12 @@ def test_scripts_sobem_e_param_os_workers_de_email() -> None:
     if (ROOT / "docker-compose.yml").exists():
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         assert all(f'"hub-worker", "{w}"' in compose for w in WORKERS)
+
+
+def test_scripts_abrem_o_docker_desktop_se_estiver_fechado() -> None:
+    helper = (ROOT / "tools" / "docker_pronto.bat").read_text(encoding="utf-8")
+    assert "docker info" in helper and 'start "" "%DOCKER_DESKTOP%"' in helper and "exit /b 1" in helper
+    for name in ("iniciar.bat", "aplicacao.bat", "resetar-senha.bat"):
+        bat = (ROOT / name).read_text(encoding="utf-8")
+        call = bat.index("call tools\\docker_pronto.bat")
+        assert call < bat.index("docker compose up"), name  # o Docker fica pronto antes de subir os serviços

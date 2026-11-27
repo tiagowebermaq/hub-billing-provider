@@ -23,6 +23,7 @@ echo == 3/5 Configuracao (.env)
 .venv\Scripts\python.exe tools\setup_env.py || goto :erro
 
 echo == 4/5 RabbitMQ, Redis e PostgreSQL
+call tools\docker_pronto.bat || goto :erro
 docker compose up -d rabbitmq redis postgres || goto :erro
 
 echo == 5/5 Testes
