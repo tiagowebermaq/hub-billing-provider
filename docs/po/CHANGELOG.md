@@ -3,6 +3,19 @@
 Formato: `## [versão] - AAAA-MM-DD - autor`, seguido dos itens alterados.
 Política: SemVer (MAJOR = visão/escopo/arquitetura, MINOR = novo requisito/provedor/épico, PATCH = correções de texto).
 
+## [1.11.0] - 2026-11-27 - Weber
+- Versão automática após 10 PRs mergeados.
+- PR #27: fix(coleta): RGE traz todas as UCs do login e Corsan explica a recusa
+- PR #28: fix(cpfl): troca de UC segue os redirecionamentos com os cookies novos
+- PR #29: feat(faturas): PDF, PIX, titular e endereço das contas da RGE no painel
+- PR #30: fix(login): RGE fecha a janela assim que a agência abre, sem o app antigo
+- PR #31: fix(scripts): parar.bat fecha as janelas dos workers também no Terminal do Windows 11
+- PR #32: fix(scripts): janela do aplicacao.bat fecha sozinha e pelo parar.bat
+- PR #34: fix(corsan): Conectar captura a chave da API do portal, fim do 401 na coleta
+- PR #33: feat(email+webhooks): faturas por e-mail (POP3/IMAP) e avisos aos sistemas vizinhos
+- PR #35: Scripts abrem o Docker Desktop sozinhos quando ele estiver fechado
+- PR #36: feat(faturas): contas Em aberto, Vencida e Paga (some do portal = paga)
+
 ## [1.10.0] - 2026-10-29 - Weber
 - Versão automática após 10 PRs mergeados.
 - PR #17: Painel e logins dos portais sempre no navegador do hub
