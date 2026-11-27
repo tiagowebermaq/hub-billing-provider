@@ -47,6 +47,9 @@ PC), `iniciar`, `aplicacao` e `resetar-senha` abrem o Docker Desktop sozinhos e 
 O hub usa a porta 8010 para não conflitar com outros projetos na 8000. Para usar outra, defina `HUB_PORT`
 antes de rodar `aplicacao` (ex.: `set HUB_PORT=8020` no Windows). Se a porta estiver ocupada, o script avisa e para.
 
+## Servidor (https://billing.heimber.com.br)
+Na VM do omnichannel, no R610: `./publicar.sh` sobe tudo no Docker com HTTPS; `exportar-dados.bat` no PC leva os dados. Passo a passo em [docs/publicar-servidor.md](docs/publicar-servidor.md).
+
 ## Testes
 Os testes unitários rodam sem RabbitMQ, Redis ou PostgreSQL (usam simulações), nos três ambientes:
 
