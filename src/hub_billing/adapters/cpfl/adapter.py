@@ -231,7 +231,10 @@ class CpflAdapter(ProviderAdapter):
                     if valor.isdigit():
                         accounts.setdefault(valor, ProviderAccount(account_number=valor,
                                                                    extra={"conta_atual": None, "escolha": escolha}))
-                elif conta:
+                elif not conta:  # página abriu, mas a conta atual não deu para ler: o hub não mexe nessa UC
+                    log.warning("UC %s da CPFL: conta atual não lida; pagamento dessa UC não conferido",
+                                (escolha or {}).get("valor", "aberta no login"))
+                else:
                     extra = {"conta_atual": conta, **({"escolha": escolha} if escolha else {})}
                     if conta["instalacao"] not in self._pdfs:  # baixa já, com a UC aberta, sem trocar de novo depois
                         try:
@@ -265,7 +268,11 @@ class CpflAdapter(ProviderAdapter):
         if av.is_login_page(str(resp.url), resp.text):
             raise SessionExpired("sessão da CPFL expirada: refaça o login assistido")
         conta = av.parse_conta_atual(resp.text)
-        return _SEM_CONTA if conta is None and av.sem_conta_atual(resp.text) else conta
+        if conta is None and av.sem_conta_atual(resp.text):
+            return _SEM_CONTA
+        if conta is None:
+            av.save_diagnostic("pagina-inicial-nao-lida.html", resp.text)
+        return conta
 
     async def fetch_bills(
         self, session: ProviderSession, account: ProviderAccount, reference: str | None = None
