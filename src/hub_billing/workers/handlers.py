@@ -97,6 +97,9 @@ def reconcile_payments(repo: Repository, provider: str, accounts: list[ProviderA
         shown = {r.reference_month: r for r in raws if r.account_number == account.account_number}
         partial = "conta_atual" in account.extra
         current = max(shown.values(), key=lambda r: r.reference_month, default=None)
+        log.info("%s %s: portal mostra em aberto %s", provider, account.account_number,
+                 ", ".join(f"{r.reference_month} ({r.payload.get('status') or 'sem situação'})"
+                           for r in shown.values()) or "nenhuma conta")
         for bill in repo.account_bills(provider, account.account_number):
             if bill.payment_source == "manual":
                 continue
